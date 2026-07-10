@@ -1,0 +1,72 @@
+# Local agent/tooling state
+.codex/
+.agents/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+secrets/
+credentials/
+
+# Logs and runtime artifacts
+*.log
+logs/
+tmp/
+temp/
+.cache/
+.coverage
+coverage/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+env/
+dist/
+build/
+*.egg-info/
+
+# Node / frontend
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.next/
+.nuxt/
+.svelte-kit/
+vite.config.*.timestamp-*
+*.tsbuildinfo
+
+# Java / JVM
+target/
+out/
+*.class
+*.jar
+*.war
+
+# Docker and packaged outputs
+*.tar
+*.tar.gz
+*.zip
+*.7z
+
+# IDE and OS noise
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+desktop.ini

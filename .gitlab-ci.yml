@@ -1,0 +1,22 @@
+stages:
+  - test
+
+unit-test:
+  stage: test
+  image: python:3.12-slim
+  script:
+    - echo "Running unit-test job"
+    - |
+      if [ -f Makefile ]; then
+        make test
+      elif [ -f package.json ]; then
+        corepack enable || true
+        npm install
+        npm test
+      elif [ -f pyproject.toml ] || [ -f pytest.ini ]; then
+        pip install -e ".[dev]" || pip install -r requirements.txt
+        pytest
+      else
+        echo "No implementation test command yet. Replace this fallback after project scaffolding."
+      fi
+

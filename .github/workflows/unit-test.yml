@@ -1,0 +1,40 @@
+name: unit-test
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+jobs:
+  unit-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run unit tests
+        shell: bash
+        run: |
+          if [ -f Makefile ]; then
+            make test
+          elif [ -f package.json ]; then
+            npm install
+            npm test
+          elif [ -f pyproject.toml ] || [ -f pytest.ini ]; then
+            pip install -e ".[dev]" || pip install -r requirements.txt
+            pytest
+          else
+            echo "No implementation test command yet. Replace this fallback after project scaffolding."
+          fi
+
