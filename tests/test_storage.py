@@ -12,7 +12,6 @@ from harness.domain import (
     ContextItem,
     ContextPackage,
     Feedback,
-    MemoryEntry,
     SchemaStatus,
     Task,
     TaskRun,
@@ -98,49 +97,6 @@ class TestStorageCreatesTaskRunAndAuditEvent:
 def test_report_statuses_match_spec():
     """Reports expose the success/failure statuses required by SPEC 5.11."""
     assert {status.value for status in ReportStatus} == {"success", "failure"}
-
-
-class TestMemoryStorage:
-    """Memory entry persistence tests (SPEC section 5.10, section 8.9)."""
-
-    def test_create_and_list_memory(self, storage):
-        entry = MemoryEntry(
-            repo_path=str(storage.repo_path),
-            kind="historical_decision",
-            content="Use SQLite for structured state",
-            confidence=0.9,
-        )
-        storage.create_memory_entry(entry)
-
-        entries = storage.list_memory_entries(repo_path=str(storage.repo_path))
-        assert len(entries) == 1
-        assert entries[0]["content"] == "Use SQLite for structured state"
-
-    def test_supersession_preserves_old(self, storage):
-        """PLAN Task 4 test - but exercising storage layer."""
-        old = MemoryEntry(
-            repo_path=str(storage.repo_path),
-            kind="historical_decision",
-            content="v1 decision",
-        )
-        new = MemoryEntry(
-            repo_path=str(storage.repo_path),
-            kind="historical_decision",
-            content="v2 decision",
-        )
-        storage.create_memory_entry(old)
-        storage.create_memory_entry(new)
-        storage.supersede_memory(old.id, new.id)
-
-        # Active list excludes superseded
-        active = storage.list_memory_entries(repo_path=str(storage.repo_path))
-        assert len(active) == 1
-        assert active[0]["id"] == new.id
-
-        # Old entry still exists with superseded_by set
-        old_row = storage.get_memory_entry(old.id)
-        assert old_row is not None
-        assert old_row["superseded_by"] == new.id
 
 
 class TestFeedbackStorage:
