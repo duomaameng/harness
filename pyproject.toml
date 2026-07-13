@@ -1,0 +1,35 @@
+[project]
+name = "context-aware-harness"
+version = "0.1.0"
+description = "Context-Aware Coding Agent Harness for single-repository feature development"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Harness Team" }]
+dependencies = [
+    "typer>=0.9",
+    "fastapi>=0.109",
+    "uvicorn>=0.27",
+    "keyring>=24",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=4",
+]
+
+[project.scripts]
+harness = "harness.cli:app"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["harness*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"
