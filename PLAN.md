@@ -132,6 +132,8 @@
 
 ### Task 3: Repository Index, Project Conventions, And Fixture Repo
 
+**Status:** Complete.
+
 **Parallel:** Yes, after Task 1.
 
 **Depends On:** Task 1.
