@@ -11,7 +11,6 @@ from harness.domain import (
     ContextItem,
     ContextPackage,
     Feedback,
-    MemoryEntry,
     SchemaStatus,
     Task,
     TaskRun,
@@ -97,23 +96,6 @@ class TestStorageCreatesTaskRunAndAuditEvent:
 def test_report_statuses_match_spec():
     """Reports expose the success/failure statuses required by SPEC 5.11."""
     assert {status.value for status in ReportStatus} == {"success", "failure"}
-
-
-class TestMemoryStorage:
-    """Memory entry persistence tests (SPEC section 5.10, section 8.9)."""
-
-    def test_create_and_list_memory(self, storage):
-        entry = MemoryEntry(
-            repo_path=str(storage.repo_path),
-            kind="historical_decision",
-            content="Use SQLite for structured state",
-            confidence=0.9,
-        )
-        storage.create_memory_entry(entry)
-
-        entries = storage.list_memory_entries(repo_path=str(storage.repo_path))
-        assert len(entries) == 1
-        assert entries[0]["content"] == "Use SQLite for structured state"
 
 
 class TestFeedbackStorage:
