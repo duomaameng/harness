@@ -8,6 +8,8 @@ import pytest
 
 from harness.domain import (
     Action,
+    ContextItem,
+    ContextPackage,
     Feedback,
     MemoryEntry,
     SchemaStatus,
@@ -185,3 +187,78 @@ class TestToolResultStorage:
 
         with pytest.raises(ValueError, match="Unknown tool result status"):
             storage.create_tool_result(result)
+
+    def test_rejects_result_for_invalid_action(self, storage):
+        task = Task(title="T", description="D", repo_path=str(storage.repo_path))
+        storage.create_task(task)
+        run = TaskRun(task_id=task.id)
+        storage.create_task_run(run)
+        action = Action(task_run_id=run.id, action_type="unknown_action",
+                        schema_status=SchemaStatus.INVALID.value)
+        storage.create_action(action)
+
+        result = ToolResult(action_id=action.id)
+        with pytest.raises(ValueError, match="invalid action"):
+            storage.create_tool_result(result)
+
+        assert storage.get_tool_result("missing") is None
+        assert storage.get_tool_result(result.id) is None
+
+
+def test_storage_creates_task_run_and_audit_event():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        storage = HarnessStorage(repo)
+        storage.init()
+        task = Task(title="Required test", repo_path=str(repo))
+        run = TaskRun(task_id=task.id)
+
+        storage.create_task(task)
+        storage.create_task_run(run)
+        storage.write_audit({"type": "task.created", "task_id": task.id,
+                             "timestamp": "2026-01-01T00:00:00+00:00"})
+
+        assert storage.get_task(task.id)["id"] == task.id
+        assert storage.get_task_run(run.id)["task_id"] == task.id
+        events = [json.loads(line) for line in storage.audit_path.read_text().splitlines()]
+        assert any(event["type"] == "task.created" and event["task_id"] == task.id
+                   for event in events)
+
+
+def test_context_package_items_preserve_input_order(storage):
+    task = Task(title="T", repo_path=str(storage.repo_path))
+    storage.create_task(task)
+    run = TaskRun(task_id=task.id)
+    storage.create_task_run(run)
+    first = ContextItem(repo_path=str(storage.repo_path), kind="code_structure")
+    second = ContextItem(repo_path=str(storage.repo_path), kind="project_convention")
+    storage.create_context_item(first)
+    storage.create_context_item(second)
+    package = ContextPackage(task_run_id=run.id, items=[second.id, first.id])
+
+    storage.create_context_package(package)
+
+    assert storage.get_package_items(package.id) == [second.id, first.id]
+
+
+def test_storage_redacts_credential_like_values_before_persistence(storage):
+    task = Task(title="T", repo_path=str(storage.repo_path))
+    storage.create_task(task)
+    run = TaskRun(task_id=task.id)
+    storage.create_task_run(run)
+    action = Action(task_run_id=run.id, args_json='{"api_key": "secret-value"}')
+    storage.create_action(action)
+    result = ToolResult(action_id=action.id, stdout_excerpt="password=top-secret")
+    storage.create_tool_result(result)
+    storage.write_audit({"type": "credentials", "payload": {
+        "token": "audit-secret", "nested": ["Bearer audit-token"]
+    }})
+
+    action_row = storage.get_action(action.id)
+    result_row = storage.get_tool_result(result.id)
+    audit_text = storage.audit_path.read_text()
+    assert "secret-value" not in action_row["args_json"]
+    assert "top-secret" not in result_row["stdout_excerpt"]
+    assert "audit-secret" not in audit_text
+    assert "audit-token" not in audit_text
+    assert "[REDACTED]" in action_row["args_json"]
