@@ -32,3 +32,20 @@
   - scoped architecture redesign, non-architecture rewrites, and local deployments stay in scope.
 - Validation: `tests/test_profiler.py` passed with 11 tests; full suite passed with 53 tests; `git diff --check` passed with only Git line-ending warnings.
 - Review status: final task-scoped spec and quality review approved with no Critical, Important, or Minor issues.
+
+## Baseline Fix Before Task 3: Storage Redaction And Ordinal Migration
+
+- Worktree: `C:\Users\duoma\java\harness\.worktrees\task-3-repo-index`
+- Branch: `codex/task-3-repo-index`
+- Reason: Task 3 baseline was blocked because storage tests from prior Task 1 hardening were present but the matching storage implementation was missing on this branch.
+- TDD RED:
+  - baseline `python -m pytest -q` failed with 5 storage failures before the fix;
+  - added regression tests for `token_estimate` over-redaction, common snake_case/camelCase secret keys, free-text env-style assignments, `selection_reason` redaction, duplicate zero/nonzero ordinal backfills, and chained duplicate ordinals.
+- TDD GREEN:
+  - added recursive storage redaction before SQLite/JSONL persistence;
+  - added legacy `context_package_item.ordinal` migration/backfill that resolves duplicate ordinals without reversing context item order;
+  - fixed camelCase key normalization for JSON payloads.
+- Review status:
+  - spec compliance review approved with no findings after redaction and ordinal fixes;
+  - code quality review findings were fixed for `token_estimate`, duplicate ordinal reordering, free-text env-style secrets, and camelCase secret keys.
+- Validation: `tests/test_storage.py` passed with 23 tests; full suite passed with 40 tests; `git diff --check` reported only Git CRLF warnings.
