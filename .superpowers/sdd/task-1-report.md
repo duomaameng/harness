@@ -171,3 +171,58 @@ Files changed in this pass:
 - `harness/storage.py`
 - `tests/test_storage.py`
 - `.superpowers/sdd/task-1-report.md`
+
+## Third Fix Pass: Final Re-review Findings
+
+### RED
+
+Added regression tests before production changes:
+
+- `test_storage_redacts_bare_secret_values_and_content_refs`
+- `test_storage_backfills_ordinals_for_intermediate_zeroed_migration`
+
+Command:
+
+```text
+C:\Users\duoma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe -m pytest tests/test_storage.py::test_storage_redacts_bare_secret_values_and_content_refs tests/test_storage.py::test_storage_backfills_ordinals_for_intermediate_zeroed_migration -q
+```
+
+Observed RED output:
+
+```text
+2 failed, 0 passed
+FAILED ...::test_storage_redacts_bare_secret_values_and_content_refs:
+  assert 'sk-test-secret' not in '{"note": "sk-test-secret"}'
+FAILED ...::test_storage_backfills_ordinals_for_intermediate_zeroed_migration:
+  assert [('item-1', 0), ('item-2', 0)] == [('item-2', 0), ('item-1', 1)]
+```
+
+These failures reproduced the final re-review findings: bare `sk-...` values
+could reach SQLite, and databases already upgraded with zeroed ordinals were not
+backfilled.
+
+### GREEN
+
+Implemented the minimal fixes:
+
+- `_redact()` now redacts bare `sk-...` credential-like values in addition to
+  sensitive keys, assignments, and bearer tokens.
+- `create_context_item()` redacts `content_ref` before SQLite persistence.
+- `init()` now backfills package-item ordinals for packages with duplicate
+  ordinal values, covering the intermediate zeroed-migration state.
+
+Focused regression tests passed: `2 passed`.
+
+Required validation:
+
+```text
+tests/test_storage.py: 17 passed
+full suite: 42 passed
+git diff --check: passed
+```
+
+Files changed in this pass:
+
+- `harness/storage.py`
+- `tests/test_storage.py`
+- `.superpowers/sdd/task-1-report.md`

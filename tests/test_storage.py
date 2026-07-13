@@ -265,6 +265,28 @@ def test_storage_redacts_credential_like_values_before_persistence(storage):
     assert "[REDACTED]" in action_row["args_json"]
 
 
+def test_storage_redacts_bare_secret_values_and_content_refs(storage):
+    task = Task(title="T", repo_path=str(storage.repo_path))
+    storage.create_task(task)
+    run = TaskRun(task_id=task.id)
+    storage.create_task_run(run)
+    action = Action(task_run_id=run.id, args_json='{"note": "sk-test-secret"}')
+    storage.create_action(action)
+    item = ContextItem(
+        repo_path=str(storage.repo_path),
+        kind="code_structure",
+        content_ref="sk-test-content-ref",
+    )
+    storage.create_context_item(item)
+
+    action_row = storage.get_action(action.id)
+    item_row = storage.get_context_item(item.id)
+    assert "sk-test-secret" not in action_row["args_json"]
+    assert "sk-test-content-ref" not in item_row["content_ref"]
+    assert "[REDACTED]" in action_row["args_json"]
+    assert item_row["content_ref"] == "[REDACTED]"
+
+
 def test_storage_redacts_credential_like_values_in_updates(storage):
     task = Task(title="T", repo_path=str(storage.repo_path))
     storage.create_task(task)
@@ -292,6 +314,40 @@ def test_storage_backfills_context_package_item_ordinals_for_legacy_rows():
         conn.executemany(
             "INSERT INTO context_package_item (package_id, item_id) VALUES (?, ?)",
             [("package-1", "item-2"), ("package-1", "item-1")],
+        )
+        conn.commit()
+        conn.close()
+
+        HarnessStorage(repo).init()
+
+        conn = sqlite3.connect(db_path)
+        rows = conn.execute(
+            "SELECT item_id, ordinal FROM context_package_item "
+            "WHERE package_id=? ORDER BY ordinal",
+            ("package-1",),
+        ).fetchall()
+        conn.close()
+
+        assert rows == [("item-2", 0), ("item-1", 1)]
+
+
+def test_storage_backfills_ordinals_for_intermediate_zeroed_migration():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        harness_dir = repo / ".harness"
+        harness_dir.mkdir(parents=True)
+        db_path = harness_dir / "harness.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "CREATE TABLE context_package_item ("
+            "package_id TEXT NOT NULL, item_id TEXT NOT NULL, "
+            "ordinal INTEGER NOT NULL DEFAULT 0, "
+            "PRIMARY KEY (package_id, item_id))"
+        )
+        conn.executemany(
+            "INSERT INTO context_package_item (package_id, item_id, ordinal) "
+            "VALUES (?, ?, ?)",
+            [("package-1", "item-2", 0), ("package-1", "item-1", 0)],
         )
         conn.commit()
         conn.close()

@@ -155,6 +155,7 @@ _SENSITIVE_ASSIGNMENT = re.compile(
     r"secret|credential|private[_-]?key|token)\s*[:=]\s*)([^\s,;}]+)",
     re.IGNORECASE)
 _BEARER = re.compile(r"\bBearer\s+[^\s,;}]+", re.IGNORECASE)
+_SECRET_VALUE = re.compile(r"\bsk-[A-Za-z0-9_-]+\b")
 
 
 def _redact(value: Any, key: str | None = None) -> Any:
@@ -174,8 +175,9 @@ def _redact(value: Any, key: str | None = None) -> Any:
             parsed = None
         if isinstance(parsed, (dict, list)):
             return json.dumps(_redact(parsed), ensure_ascii=False)
-        return _BEARER.sub("Bearer [REDACTED]",
-                           _SENSITIVE_ASSIGNMENT.sub(r"\1[REDACTED]", value))
+        redacted = _SENSITIVE_ASSIGNMENT.sub(r"\1[REDACTED]", value)
+        redacted = _BEARER.sub("Bearer [REDACTED]", redacted)
+        return _SECRET_VALUE.sub("[REDACTED]", redacted)
     return value
 
 
@@ -218,15 +220,22 @@ class HarnessStorage:
             conn.execute(
                 "ALTER TABLE context_package_item ADD COLUMN ordinal INTEGER NOT NULL DEFAULT 0"
             )
-            conn.execute(
-                """UPDATE context_package_item AS current
-                   SET ordinal = (
-                       SELECT COUNT(*) - 1
-                       FROM context_package_item AS prior
-                       WHERE prior.package_id = current.package_id
-                         AND prior.rowid <= current.rowid
-                   )"""
-            )
+        conn.execute(
+            """UPDATE context_package_item AS current
+               SET ordinal = (
+                   SELECT COUNT(*) - 1
+                   FROM context_package_item AS prior
+                   WHERE prior.package_id = current.package_id
+                     AND prior.rowid <= current.rowid
+               )
+               WHERE EXISTS (
+                   SELECT 1
+                   FROM context_package_item AS duplicate
+                   WHERE duplicate.package_id = current.package_id
+                   GROUP BY duplicate.package_id, duplicate.ordinal
+                   HAVING COUNT(*) > 1
+               )"""
+        )
         conn.commit()
         conn.close()
 
@@ -324,7 +333,7 @@ class HarnessStorage:
                    symbol, summary, content_ref, metadata, updated_at)
                    VALUES (?,?,?,?,?,?,?,?,?)""",
                 (item.id, item.repo_path, item.kind, item.source_path,
-                 item.symbol, _redact(item.summary), item.content_ref, meta_json,
+                 item.symbol, _redact(item.summary), _redact(item.content_ref), meta_json,
                  item.updated_at),
             )
             conn.commit()
