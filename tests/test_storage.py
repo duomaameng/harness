@@ -20,6 +20,7 @@ from harness.domain import (
     ToolResult,
 )
 from harness.storage import HarnessStorage
+from harness.storage import _redact
 
 
 @pytest.fixture
@@ -319,3 +320,230 @@ def test_storage_backfills_ordinals_for_intermediate_zeroed_migration():
         conn.close()
 
         assert rows == [("item-2", 0), ("item-1", 1)]
+
+
+def test_storage_does_not_redact_token_estimate_column(storage):
+    assert _redact(123, "token_estimate") == 123
+
+
+def test_storage_redacts_common_secret_suffix_keys():
+    payload = {
+        "client_secret": "secret-value",
+        "refresh_token": "token-value",
+        "apiKey": "api-key-value",
+        "clientSecret": "client-secret-value",
+        "refreshToken": "refresh-token-value",
+    }
+
+    redacted = _redact(payload)
+
+    assert redacted == {
+        "client_secret": "[REDACTED]",
+        "refresh_token": "[REDACTED]",
+        "apiKey": "[REDACTED]",
+        "clientSecret": "[REDACTED]",
+        "refreshToken": "[REDACTED]",
+    }
+
+
+def test_storage_redacts_context_package_selection_reason(storage):
+    task = Task(title="T", repo_path=str(storage.repo_path))
+    storage.create_task(task)
+    run = TaskRun(task_id=task.id)
+    storage.create_task_run(run)
+    package = ContextPackage(
+        task_run_id=run.id,
+        selection_reason="included because password=top-secret",
+    )
+
+    storage.create_context_package(package)
+
+    row = storage.get_context_package(package.id)
+    assert row["selection_reason"] == "included because password=[REDACTED]"
+
+
+def test_storage_redacts_env_style_secret_names_in_free_text():
+    value = (
+        "client_secret=client-value "
+        "refresh_token=refresh-value "
+        "OPENAI_API_KEY=sk-test-secret"
+    )
+
+    redacted = _redact(value)
+
+    assert "client-value" not in redacted
+    assert "refresh-value" not in redacted
+    assert "sk-test-secret" not in redacted
+    assert redacted == (
+        "client_secret=[REDACTED] "
+        "refresh_token=[REDACTED] "
+        "OPENAI_API_KEY=[REDACTED]"
+    )
+
+
+def test_storage_preserves_valid_nonzero_ordinals_during_migration():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        harness_dir = repo / ".harness"
+        harness_dir.mkdir(parents=True)
+        db_path = harness_dir / "harness.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "CREATE TABLE context_package_item ("
+            "package_id TEXT NOT NULL, item_id TEXT NOT NULL, "
+            "ordinal INTEGER NOT NULL DEFAULT 0, "
+            "PRIMARY KEY (package_id, item_id))"
+        )
+        conn.executemany(
+            "INSERT INTO context_package_item (package_id, item_id, ordinal) "
+            "VALUES (?, ?, ?)",
+            [
+                ("package-1", "item-2", 0),
+                ("package-1", "item-1", 1),
+                ("package-2", "item-b", 0),
+                ("package-2", "item-a", 0),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        HarnessStorage(repo).init()
+
+        conn = sqlite3.connect(db_path)
+        package_1 = conn.execute(
+            "SELECT item_id, ordinal FROM context_package_item "
+            "WHERE package_id=? ORDER BY ordinal",
+            ("package-1",),
+        ).fetchall()
+        package_2 = conn.execute(
+            "SELECT item_id, ordinal FROM context_package_item "
+            "WHERE package_id=? ORDER BY ordinal",
+            ("package-2",),
+        ).fetchall()
+        conn.close()
+
+        assert package_1 == [("item-2", 0), ("item-1", 1)]
+        assert package_2 == [("item-b", 0), ("item-a", 1)]
+
+
+def test_storage_backfills_duplicate_zero_ordinals_without_rewriting_valid_ordinals():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        harness_dir = repo / ".harness"
+        harness_dir.mkdir(parents=True)
+        db_path = harness_dir / "harness.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "CREATE TABLE context_package_item ("
+            "package_id TEXT NOT NULL, item_id TEXT NOT NULL, "
+            "ordinal INTEGER NOT NULL DEFAULT 0, "
+            "PRIMARY KEY (package_id, item_id))"
+        )
+        conn.executemany(
+            "INSERT INTO context_package_item (package_id, item_id, ordinal) "
+            "VALUES (?, ?, ?)",
+            [
+                ("package-1", "item-zero-a", 0),
+                ("package-1", "item-existing", 5),
+                ("package-1", "item-zero-b", 0),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        HarnessStorage(repo).init()
+
+        conn = sqlite3.connect(db_path)
+        rows = conn.execute(
+            "SELECT item_id, ordinal FROM context_package_item "
+            "WHERE package_id=? ORDER BY ordinal",
+            ("package-1",),
+        ).fetchall()
+        conn.close()
+
+        assert rows == [
+            ("item-zero-a", 0),
+            ("item-zero-b", 1),
+            ("item-existing", 5),
+        ]
+
+
+def test_storage_backfills_duplicate_nonzero_ordinals_without_reordering():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        harness_dir = repo / ".harness"
+        harness_dir.mkdir(parents=True)
+        db_path = harness_dir / "harness.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "CREATE TABLE context_package_item ("
+            "package_id TEXT NOT NULL, item_id TEXT NOT NULL, "
+            "ordinal INTEGER NOT NULL DEFAULT 0, "
+            "PRIMARY KEY (package_id, item_id))"
+        )
+        conn.executemany(
+            "INSERT INTO context_package_item (package_id, item_id, ordinal) "
+            "VALUES (?, ?, ?)",
+            [
+                ("package-1", "item-first", 5),
+                ("package-1", "item-second", 5),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        HarnessStorage(repo).init()
+
+        conn = sqlite3.connect(db_path)
+        rows = conn.execute(
+            "SELECT item_id, ordinal FROM context_package_item "
+            "WHERE package_id=? ORDER BY ordinal",
+            ("package-1",),
+        ).fetchall()
+        conn.close()
+
+        assert rows == [("item-first", 5), ("item-second", 6)]
+
+
+def test_storage_backfills_chained_duplicate_ordinals_in_row_order():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        harness_dir = repo / ".harness"
+        harness_dir.mkdir(parents=True)
+        db_path = harness_dir / "harness.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "CREATE TABLE context_package_item ("
+            "package_id TEXT NOT NULL, item_id TEXT NOT NULL, "
+            "ordinal INTEGER NOT NULL DEFAULT 0, "
+            "PRIMARY KEY (package_id, item_id))"
+        )
+        conn.executemany(
+            "INSERT INTO context_package_item (package_id, item_id, ordinal) "
+            "VALUES (?, ?, ?)",
+            [
+                ("package-1", "item-0", 0),
+                ("package-1", "item-1a", 1),
+                ("package-1", "item-1b", 1),
+                ("package-1", "item-2", 2),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        HarnessStorage(repo).init()
+
+        conn = sqlite3.connect(db_path)
+        rows = conn.execute(
+            "SELECT item_id, ordinal FROM context_package_item "
+            "WHERE package_id=? ORDER BY ordinal",
+            ("package-1",),
+        ).fetchall()
+        conn.close()
+
+        assert rows == [
+            ("item-0", 0),
+            ("item-1a", 1),
+            ("item-1b", 2),
+            ("item-2", 3),
+        ]

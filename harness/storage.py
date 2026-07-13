@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -146,6 +147,103 @@ def _append_jsonl(path: Path, event: dict[str, Any]) -> None:
         fh.write(json.dumps(event, ensure_ascii=False) + "\n")
 
 
+_SENSITIVE_KEY_NAMES = {
+    "api_key",
+    "access_token",
+    "auth_token",
+    "password",
+    "passwd",
+    "secret",
+    "credential",
+    "credentials",
+    "private_key",
+    "token",
+}
+_SENSITIVE_ASSIGNMENT = re.compile(
+    r"(\b[A-Za-z0-9_-]*(?:api[_-]?key|access[_-]?token|auth[_-]?token|"
+    r"password|passwd|secret|credential|private[_-]?key|token)\s*[:=]\s*)"
+    r"([^\s,;}]+)",
+    re.IGNORECASE,
+)
+_BEARER = re.compile(r"\bBearer\s+[^\s,;}]+", re.IGNORECASE)
+_SECRET_VALUE = re.compile(r"\bsk-[A-Za-z0-9_-]+\b")
+
+
+def _redact(value: Any, key: str | None = None) -> Any:
+    """Redact credential-like values recursively before persistence."""
+    if key and _is_sensitive_key(key):
+        return "[REDACTED]"
+    if isinstance(value, dict):
+        return {k: _redact(v, str(k)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_redact(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact(item) for item in value)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, (dict, list)):
+            return json.dumps(_redact(parsed), ensure_ascii=False)
+        redacted = _SENSITIVE_ASSIGNMENT.sub(r"\1[REDACTED]", value)
+        redacted = _BEARER.sub("Bearer [REDACTED]", redacted)
+        return _SECRET_VALUE.sub("[REDACTED]", redacted)
+    return value
+
+
+def _is_sensitive_key(key: str) -> bool:
+    snake_key = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", key)
+    normalized = re.sub(r"[^a-z0-9]+", "_", snake_key.lower()).strip("_")
+    return (
+        normalized in _SENSITIVE_KEY_NAMES
+        or normalized.endswith("_secret")
+        or normalized.endswith("_token")
+        or normalized.endswith("_api_key")
+        or normalized.endswith("_private_key")
+    )
+
+
+def _redact_json_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        parsed = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return _redact(value)
+    return json.dumps(_redact(parsed), ensure_ascii=False)
+
+
+def _backfill_context_package_item_ordinals(conn: sqlite3.Connection) -> None:
+    rows = conn.execute(
+        "SELECT rowid, package_id, ordinal "
+        "FROM context_package_item ORDER BY package_id, rowid"
+    ).fetchall()
+    by_package: dict[str, list[sqlite3.Row]] = {}
+    for row in rows:
+        by_package.setdefault(row["package_id"], []).append(row)
+
+    for package_rows in by_package.values():
+        ordinals = [row["ordinal"] for row in package_rows]
+        if len(ordinals) == len(set(ordinals)):
+            continue
+
+        used: set[int] = set()
+        for row in package_rows:
+            ordinal = row["ordinal"]
+            if ordinal not in used:
+                used.add(ordinal)
+                continue
+            next_ordinal = ordinal + 1
+            while next_ordinal in used:
+                next_ordinal += 1
+            conn.execute(
+                "UPDATE context_package_item SET ordinal=? WHERE rowid=?",
+                (next_ordinal, row["rowid"]),
+            )
+            used.add(next_ordinal)
+
+
 # -- Storage --------------------------------------------------------
 
 
@@ -167,9 +265,20 @@ class HarnessStorage:
         """Create `.harness/` directory and initialise the SQLite schema."""
         self.harness_dir.mkdir(parents=True, exist_ok=True)
         conn = self._connect()
-        conn.executescript(SCHEMA_SQL)
-        conn.commit()
-        conn.close()
+        try:
+            conn.executescript(SCHEMA_SQL)
+            columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(context_package_item)")
+            }
+            if "ordinal" not in columns:
+                conn.execute(
+                    "ALTER TABLE context_package_item "
+                    "ADD COLUMN ordinal INTEGER NOT NULL DEFAULT 0"
+                )
+            _backfill_context_package_item_ordinals(conn)
+            conn.commit()
+        finally:
+            conn.close()
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self.db_path))
@@ -183,7 +292,7 @@ class HarnessStorage:
     def _insert(self, table: str, obj: Any, exclude: set[str] | None = None) -> None:
         """Insert a dataclass instance into *table*.  Fields in *exclude* are skipped."""
         exclude = exclude or set()
-        data = {k: v for k, v in vars(obj).items() if k not in exclude}
+        data = {k: _redact(v, k) for k, v in vars(obj).items() if k not in exclude}
         columns = ", ".join(data.keys())
         placeholders = ", ".join("?" for _ in data)
         sql = f"INSERT INTO {table} ({columns}) VALUES ({placeholders})"
@@ -202,7 +311,8 @@ class HarnessStorage:
         sql = f"UPDATE {table} SET {sets} WHERE {pk_field}=?"
         conn = self._connect()
         try:
-            conn.execute(sql, list(fields.values()) + [pk_value])
+            values = [_redact(value, key) for key, value in fields.items()]
+            conn.execute(sql, values + [pk_value])
             conn.commit()
         finally:
             conn.close()
@@ -226,7 +336,7 @@ class HarnessStorage:
 
     def write_audit(self, event: dict[str, Any]) -> None:
         """Append an audit event to the JSONL log (SPEC section 8.10)."""
-        _append_jsonl(self.audit_path, event)
+        _append_jsonl(self.audit_path, _redact(event))
 
     # -- task --------------------------------------------------------
 
@@ -255,16 +365,24 @@ class HarnessStorage:
     # -- context_item ------------------------------------------------
 
     def create_context_item(self, item: ContextItem) -> ContextItem:
-        meta_json = json.dumps(item.metadata) if item.metadata else None
+        meta_json = _redact_json_text(json.dumps(item.metadata)) if item.metadata else None
         conn = self._connect()
         try:
             conn.execute(
                 """INSERT INTO context_item (id, repo_path, kind, source_path,
                    symbol, summary, content_ref, metadata, updated_at)
                    VALUES (?,?,?,?,?,?,?,?,?)""",
-                (item.id, item.repo_path, item.kind, item.source_path,
-                 item.symbol, item.summary, item.content_ref, meta_json,
-                 item.updated_at),
+                (
+                    item.id,
+                    item.repo_path,
+                    item.kind,
+                    item.source_path,
+                    item.symbol,
+                    _redact(item.summary),
+                    _redact(item.content_ref),
+                    meta_json,
+                    item.updated_at,
+                ),
             )
             conn.commit()
         finally:
@@ -297,7 +415,7 @@ class HarnessStorage:
                    token_estimate, selection_reason, created_at)
                    VALUES (?,?,?,?,?,?)""",
                 (pkg.id, pkg.task_run_id, pkg.round_index, pkg.token_estimate,
-                 pkg.selection_reason, pkg.created_at),
+                 _redact(pkg.selection_reason), pkg.created_at),
             )
             for ordinal, item_id in enumerate(pkg.items):
                 conn.execute(
@@ -361,14 +479,25 @@ class HarnessStorage:
             raise ValueError("Cannot create tool result for invalid action")
         conn = self._connect()
         try:
-            changed = json.dumps(result.changed_files) if result.changed_files else None
+            changed = (
+                _redact_json_text(json.dumps(result.changed_files))
+                if result.changed_files else None
+            )
             conn.execute(
                 """INSERT INTO tool_result (id, action_id, status, stdout_excerpt,
                    stderr_excerpt, exit_code, changed_files, duration_ms, created_at)
                    VALUES (?,?,?,?,?,?,?,?,?)""",
-                (result.id, result.action_id, result.status, result.stdout_excerpt,
-                 result.stderr_excerpt, result.exit_code, changed,
-                 result.duration_ms, result.created_at),
+                (
+                    result.id,
+                    result.action_id,
+                    result.status,
+                    _redact(result.stdout_excerpt),
+                    _redact(result.stderr_excerpt),
+                    result.exit_code,
+                    changed,
+                    result.duration_ms,
+                    result.created_at,
+                ),
             )
             conn.commit()
         finally:
@@ -387,13 +516,22 @@ class HarnessStorage:
     def create_feedback(self, fb: Feedback) -> Feedback:
         conn = self._connect()
         try:
-            locs = json.dumps(fb.locations) if fb.locations else None
+            locs = _redact_json_text(json.dumps(fb.locations)) if fb.locations else None
             conn.execute(
                 """INSERT INTO feedback (id, task_run_id, round_index, source,
                    category, summary, locations, raw_excerpt, created_at)
                    VALUES (?,?,?,?,?,?,?,?,?)""",
-                (fb.id, fb.task_run_id, fb.round_index, fb.source, fb.category,
-                 fb.summary, locs, fb.raw_excerpt, fb.created_at),
+                (
+                    fb.id,
+                    fb.task_run_id,
+                    fb.round_index,
+                    fb.source,
+                    fb.category,
+                    _redact(fb.summary),
+                    locs,
+                    _redact(fb.raw_excerpt),
+                    fb.created_at,
+                ),
             )
             conn.commit()
         finally:
