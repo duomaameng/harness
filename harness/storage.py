@@ -526,7 +526,3 @@ class HarnessStorage:
             params.append(kind)
         where = "WHERE " + " AND ".join(conditions)
         return self._fetchall(f"SELECT * FROM memory_entry {where}", tuple(params))
-
-    def supersede_memory(self, old_id: str, new_id: str) -> None:
-        """Mark *old_id* as superseded by *new_id* (SPEC section 5.10, section 8.9)."""
-        self._update("memory_entry", "id", old_id, superseded_by=new_id)
