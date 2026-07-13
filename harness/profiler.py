@@ -23,7 +23,7 @@ _VALIDATIONS = (
 
 _TASK_TYPES = (
     ("bugfix", r"\b(?:fix|bug|broken|regression|error)\b"),
-    ("refactor", r"\brefactor(?:ing)?\b|reorganize|rewrite"),
+    ("refactor", r"\brefactor(?:ing)?\b|\breorganize\b|\brewrite\b"),
     ("test", r"\b(?:test|coverage)\b"),
     ("docs", r"\b(?:document|documentation|readme)\b"),
     ("config", r"\b(?:config|configuration|setting)\b"),
@@ -69,9 +69,17 @@ class TaskProfiler:
         reasons: list[str] = []
         if self._cross_repository(lowered):
             reasons.append("cross-repository work")
-        if re.search(r"\b(?:deploy|deployment|production rollout|release to prod)\b", lowered):
-            reasons.append("external deployment")
         if re.search(
+            r"\b(?:production|prod|staging|external|remote|cloud)\b.*\b(?:deploy|deployment|rollout)\b|"
+            r"\b(?:deploy|deployment|rollout)\b.*\b(?:production|prod|staging|external|remote|cloud)\b|"
+            r"\brelease to prod\b",
+            lowered,
+        ):
+            reasons.append("external deployment")
+        has_architecture_signal = re.search(
+            r"\b(?:architecture|architectural|system design|re-architect)\b", lowered
+        )
+        if has_architecture_signal and re.search(
             r"\b(?:rewrite|redesign|re-architect|architecture rewrite)\b", lowered
         ) and re.search(
             r"\b(?:large|whole|entire|system[- ]wide)\b|\b(?:from scratch|as a whole)\b",

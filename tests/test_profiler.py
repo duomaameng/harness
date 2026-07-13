@@ -14,6 +14,13 @@ def test_profiler_marks_cross_repo_deployment_out_of_scope():
     assert "deployment" in profile.decomposition_reason
 
 
+def test_profiler_keeps_local_deployment_request_in_scope():
+    profile = TaskProfiler().profile("Deploy the local Docker preview for this repository.")
+
+    assert profile.out_of_scope is False
+    assert profile.decomposition_reason == ""
+
+
 def test_profiler_keeps_repeated_mentions_of_one_repository_in_scope():
     profile = TaskProfiler().profile(
         "Update the payments repository and inspect the payments repository tests."
@@ -58,6 +65,13 @@ def test_profiler_marks_large_architecture_rewrite_out_of_scope():
 
     assert profile.out_of_scope is True
     assert "large architecture rewrite" in profile.decomposition_reason
+
+
+def test_profiler_keeps_non_architecture_rewrite_in_scope():
+    profile = TaskProfiler().profile("Rewrite the entire README.")
+
+    assert profile.out_of_scope is False
+    assert profile.decomposition_reason == ""
 
 
 def test_profiler_keeps_scoped_architecture_redesign_in_scope():
