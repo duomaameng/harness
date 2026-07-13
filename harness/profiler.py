@@ -37,6 +37,11 @@ _SYMBOL_RE = re.compile(
     r"(?<![\w])(?:[A-Z][A-Za-z0-9_]+|[a-z_][A-Za-z0-9_]*\([^)]*\))(?![\w])"
 )
 _WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
+_MODULE_SIGNAL_RE = re.compile(
+    r"\b([a-z0-9][a-z0-9_.-]*)\s+(?:module|modules|service|services|"
+    r"package|packages|component|components)\b"
+)
+_MODULE_STOP_WORDS = {"a", "an", "the", "this", "that", "these", "those", "both"}
 
 
 class TaskProfiler:
@@ -48,13 +53,14 @@ class TaskProfiler:
         keywords = self._keywords(text)
         paths = _PATH_RE.findall(text)
         symbols = _SYMBOL_RE.findall(text)
+        named_modules = self._named_modules(lowered)
         modules = list(dict.fromkeys(paths + [
             word for word in keywords
             if word in {
                 "harness", "storage", "actions", "profiler", "feedback",
                 "context", "runner", "cli", "api", "webui",
             }
-        ]))
+        ] + named_modules))
         validations = [
             name for name, pattern in _VALIDATIONS
             if re.search(pattern, lowered)
@@ -70,8 +76,10 @@ class TaskProfiler:
         if self._cross_repository(lowered):
             reasons.append("cross-repository work")
         if re.search(
-            r"\b(?:production|prod|staging|external|remote|cloud)\b.*\b(?:deploy|deployment|rollout)\b|"
-            r"\b(?:deploy|deployment|rollout)\b.*\b(?:production|prod|staging|external|remote|cloud)\b|"
+            r"\b(?:production|prod|staging|external|remote|cloud|aws|gcp|azure|"
+            r"kubernetes|k8s|cluster|hosted)\b.*\b(?:deploy|deployment|rollout)\b|"
+            r"\b(?:deploy|deployment|rollout)\b.*\b(?:production|prod|staging|"
+            r"external|remote|cloud|aws|gcp|azure|kubernetes|k8s|cluster|hosted)\b|"
             r"\brelease to prod\b",
             lowered,
         ):
@@ -80,7 +88,9 @@ class TaskProfiler:
             r"\b(?:architecture|architectural|system design|re-architect)\b", lowered
         )
         if has_architecture_signal and re.search(
-            r"\b(?:rewrite|redesign|re-architect|architecture rewrite)\b", lowered
+            r"\b(?:rewrite|redesign|replace|overhaul|migrate|re-architect|"
+            r"architecture rewrite)\b",
+            lowered,
         ) and re.search(
             r"\b(?:large|whole|entire|system[- ]wide)\b|\b(?:from scratch|as a whole)\b",
             lowered,
@@ -100,6 +110,14 @@ class TaskProfiler:
     @staticmethod
     def _keywords(text: str) -> list[str]:
         return list(dict.fromkeys(word.lower() for word in _WORD_RE.findall(text)))
+
+    @staticmethod
+    def _named_modules(lowered: str) -> list[str]:
+        names = [
+            match.group(1) for match in _MODULE_SIGNAL_RE.finditer(lowered)
+            if match.group(1) not in _MODULE_STOP_WORDS
+        ]
+        return list(dict.fromkeys(names))
 
     @staticmethod
     def _cross_repository(lowered: str) -> bool:

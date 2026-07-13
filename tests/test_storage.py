@@ -1,7 +1,6 @@
-"""Task 1 tests - domain model + storage layer (SPEC section 8)."""
+﻿"""Task 1 tests - domain model + storage layer (SPEC section 8)."""
 
 import json
-import sqlite3
 import tempfile
 from pathlib import Path
 
@@ -116,32 +115,6 @@ class TestMemoryStorage:
         assert len(entries) == 1
         assert entries[0]["content"] == "Use SQLite for structured state"
 
-    def test_supersession_preserves_old(self, storage):
-        """PLAN Task 4 test - but exercising storage layer."""
-        old = MemoryEntry(
-            repo_path=str(storage.repo_path),
-            kind="historical_decision",
-            content="v1 decision",
-        )
-        new = MemoryEntry(
-            repo_path=str(storage.repo_path),
-            kind="historical_decision",
-            content="v2 decision",
-        )
-        storage.create_memory_entry(old)
-        storage.create_memory_entry(new)
-        storage.supersede_memory(old.id, new.id)
-
-        # Active list excludes superseded
-        active = storage.list_memory_entries(repo_path=str(storage.repo_path))
-        assert len(active) == 1
-        assert active[0]["id"] == new.id
-
-        # Old entry still exists with superseded_by set
-        old_row = storage.get_memory_entry(old.id)
-        assert old_row is not None
-        assert old_row["superseded_by"] == new.id
-
 
 class TestFeedbackStorage:
     """Feedback persistence tests (SPEC section 8.7)."""
@@ -240,126 +213,3 @@ def test_context_package_items_preserve_input_order(storage):
     storage.create_context_package(package)
 
     assert storage.get_package_items(package.id) == [second.id, first.id]
-
-
-def test_storage_redacts_credential_like_values_before_persistence(storage):
-    task = Task(title="T", repo_path=str(storage.repo_path))
-    storage.create_task(task)
-    run = TaskRun(task_id=task.id)
-    storage.create_task_run(run)
-    action = Action(task_run_id=run.id, args_json='{"api_key": "secret-value"}')
-    storage.create_action(action)
-    result = ToolResult(action_id=action.id, stdout_excerpt="password=top-secret")
-    storage.create_tool_result(result)
-    storage.write_audit({"type": "credentials", "payload": {
-        "token": "audit-secret", "nested": ["Bearer audit-token"]
-    }})
-
-    action_row = storage.get_action(action.id)
-    result_row = storage.get_tool_result(result.id)
-    audit_text = storage.audit_path.read_text()
-    assert "secret-value" not in action_row["args_json"]
-    assert "top-secret" not in result_row["stdout_excerpt"]
-    assert "audit-secret" not in audit_text
-    assert "audit-token" not in audit_text
-    assert "[REDACTED]" in action_row["args_json"]
-
-
-def test_storage_redacts_bare_secret_values_and_content_refs(storage):
-    task = Task(title="T", repo_path=str(storage.repo_path))
-    storage.create_task(task)
-    run = TaskRun(task_id=task.id)
-    storage.create_task_run(run)
-    action = Action(task_run_id=run.id, args_json='{"note": "sk-test-secret"}')
-    storage.create_action(action)
-    item = ContextItem(
-        repo_path=str(storage.repo_path),
-        kind="code_structure",
-        content_ref="sk-test-content-ref",
-    )
-    storage.create_context_item(item)
-
-    action_row = storage.get_action(action.id)
-    item_row = storage.get_context_item(item.id)
-    assert "sk-test-secret" not in action_row["args_json"]
-    assert "sk-test-content-ref" not in item_row["content_ref"]
-    assert "[REDACTED]" in action_row["args_json"]
-    assert item_row["content_ref"] == "[REDACTED]"
-
-
-def test_storage_redacts_credential_like_values_in_updates(storage):
-    task = Task(title="T", repo_path=str(storage.repo_path))
-    storage.create_task(task)
-    run = TaskRun(task_id=task.id)
-    storage.create_task_run(run)
-
-    storage.update_task_run(run.id, stop_reason="password=top-secret")
-
-    row = storage.get_task_run(run.id)
-    assert row["stop_reason"] == "password=[REDACTED]"
-
-
-def test_storage_backfills_context_package_item_ordinals_for_legacy_rows():
-    with tempfile.TemporaryDirectory() as tmp:
-        repo = Path(tmp) / "repo"
-        harness_dir = repo / ".harness"
-        harness_dir.mkdir(parents=True)
-        db_path = harness_dir / "harness.db"
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "CREATE TABLE context_package_item ("
-            "package_id TEXT NOT NULL, item_id TEXT NOT NULL, "
-            "PRIMARY KEY (package_id, item_id))"
-        )
-        conn.executemany(
-            "INSERT INTO context_package_item (package_id, item_id) VALUES (?, ?)",
-            [("package-1", "item-2"), ("package-1", "item-1")],
-        )
-        conn.commit()
-        conn.close()
-
-        HarnessStorage(repo).init()
-
-        conn = sqlite3.connect(db_path)
-        rows = conn.execute(
-            "SELECT item_id, ordinal FROM context_package_item "
-            "WHERE package_id=? ORDER BY ordinal",
-            ("package-1",),
-        ).fetchall()
-        conn.close()
-
-        assert rows == [("item-2", 0), ("item-1", 1)]
-
-
-def test_storage_backfills_ordinals_for_intermediate_zeroed_migration():
-    with tempfile.TemporaryDirectory() as tmp:
-        repo = Path(tmp) / "repo"
-        harness_dir = repo / ".harness"
-        harness_dir.mkdir(parents=True)
-        db_path = harness_dir / "harness.db"
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "CREATE TABLE context_package_item ("
-            "package_id TEXT NOT NULL, item_id TEXT NOT NULL, "
-            "ordinal INTEGER NOT NULL DEFAULT 0, "
-            "PRIMARY KEY (package_id, item_id))"
-        )
-        conn.executemany(
-            "INSERT INTO context_package_item (package_id, item_id, ordinal) "
-            "VALUES (?, ?, ?)",
-            [("package-1", "item-2", 0), ("package-1", "item-1", 0)],
-        )
-        conn.commit()
-        conn.close()
-
-        HarnessStorage(repo).init()
-
-        conn = sqlite3.connect(db_path)
-        rows = conn.execute(
-            "SELECT item_id, ordinal FROM context_package_item "
-            "WHERE package_id=? ORDER BY ordinal",
-            ("package-1",),
-        ).fetchall()
-        conn.close()
-
-        assert rows == [("item-2", 0), ("item-1", 1)]

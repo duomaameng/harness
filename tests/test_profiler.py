@@ -28,6 +28,13 @@ def test_profiler_keeps_local_deployment_request_in_scope():
     assert profile.decomposition_reason == ""
 
 
+def test_profiler_marks_cloud_deployment_out_of_scope():
+    profile = TaskProfiler().profile("Deploy the service to AWS.")
+
+    assert profile.out_of_scope is True
+    assert "deployment" in profile.decomposition_reason
+
+
 def test_profiler_keeps_repeated_mentions_of_one_repository_in_scope():
     profile = TaskProfiler().profile(
         "Update the payments repository and inspect the payments repository tests."
@@ -81,6 +88,15 @@ def test_profiler_keeps_non_architecture_rewrite_in_scope():
     assert profile.decomposition_reason == ""
 
 
+def test_profiler_marks_architecture_replacement_out_of_scope():
+    profile = TaskProfiler().profile(
+        "Replace the entire architecture with microservices."
+    )
+
+    assert profile.out_of_scope is True
+    assert "large architecture rewrite" in profile.decomposition_reason
+
+
 def test_profiler_keeps_scoped_architecture_redesign_in_scope():
     profile = TaskProfiler().profile(
         "Redesign the scoped architecture for the profiler module."
@@ -96,3 +112,9 @@ def test_profiler_keeps_scoped_feature_in_scope():
     assert profile.task_type == "feature"
     assert profile.out_of_scope is False
     assert profile.decomposition_reason == ""
+
+
+def test_profiler_extracts_named_module_signals():
+    profile = TaskProfiler().profile("Update the payments module.")
+
+    assert "payments" in profile.likely_modules
