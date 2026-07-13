@@ -49,3 +49,10 @@
   - spec compliance review approved with no findings after redaction and ordinal fixes;
   - code quality review findings were fixed for `token_estimate`, duplicate ordinal reordering, free-text env-style secrets, and camelCase secret keys.
 - Validation: `tests/test_storage.py` passed with 23 tests; full suite passed with 40 tests; `git diff --check` reported only Git CRLF warnings.
+
+## Task 3: Repository Index, Project Conventions, And Fixture Repo
+
+- Worktree: `C:\Users\duoma\java\harness\.worktrees\task-3-repo-index`
+- TDD RED: `python` was unavailable; bundled Python ran `tests/test_repo_index.py::test_repository_index_maps_source_file_to_related_test` and failed with `ModuleNotFoundError: No module named 'harness.repo_index'`.
+- TDD GREEN: added deterministic `RepositoryIndex`, fixture repository, source-to-test mapping, project convention records, AST symbol extraction, ignored artifact filtering, and syntax-error file fallback.
+- Validation: focused test passed; `tests/test_repo_index.py` passed with 3 tests; full suite passed with 45 tests; `git diff --check` passed.
