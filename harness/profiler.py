@@ -1,0 +1,101 @@
+"""Task request profiling and validation discovery hints."""
+
+from __future__ import annotations
+
+import re
+
+from harness.domain import TaskProfile
+
+
+_VALIDATIONS = (
+    ("tests", r"\btests?\b|pytest|unit tests?|integration tests?"),
+    ("lint", r"\blint(?:ing)?\b|ruff|flake8|eslint"),
+    ("typecheck", r"\btype[- ]?check(?:ing)?\b|mypy|pyright"),
+    ("build", r"\bbuild(?:ing)?\b|compile"),
+    ("docker", r"\bdocker\b|container(?:ize|isation|ization)?"),
+    ("cli", r"\bcli\b|command[- ]line"),
+    ("api", r"\bapi\b|endpoint|rest|graphql"),
+    ("webui", r"\bweb\s*ui\b|\bui\b|frontend|browser"),
+    ("guardrail", r"\bguardrails?\b|safety boundary|approval"),
+    ("memory", r"\bmemory\b|remember|historical decision"),
+    ("report", r"\breport(?:ing)?\b|summary|release notes"),
+)
+
+_TASK_TYPES = (
+    ("bugfix", r"\b(?:fix|bug|broken|regression|error)\b"),
+    ("refactor", r"\brefactor(?:ing)?\b|reorganize|rewrite"),
+    ("test", r"\b(?:test|coverage)\b"),
+    ("docs", r"\b(?:document|documentation|readme)\b"),
+    ("config", r"\b(?:config|configuration|setting)\b"),
+)
+
+_PATH_RE = re.compile(
+    r"(?<![\w.-])(?:[\w.-]+[\\/])+[\w.-]+|"
+    r"(?<![\w.-])[\w.-]+\.(?:py|js|ts|java|go|rs|md|toml|json)(?![\w.-])"
+)
+_SYMBOL_RE = re.compile(
+    r"(?<![\w])(?:[A-Z][A-Za-z0-9_]+|[a-z_][A-Za-z0-9_]*\([^)]*\))(?![\w])"
+)
+_WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
+
+
+class TaskProfiler:
+    """Extract stable, explainable hints from natural-language requests."""
+
+    def profile(self, request: str) -> TaskProfile:
+        text = request.strip()
+        lowered = text.lower()
+        keywords = self._keywords(text)
+        paths = _PATH_RE.findall(text)
+        symbols = _SYMBOL_RE.findall(text)
+        modules = list(dict.fromkeys(paths + [
+            word for word in keywords
+            if word in {
+                "harness", "storage", "actions", "profiler", "feedback",
+                "context", "runner", "cli", "api", "webui",
+            }
+        ]))
+        validations = [
+            name for name, pattern in _VALIDATIONS
+            if re.search(pattern, lowered)
+        ]
+
+        task_type = "feature"
+        for candidate, pattern in _TASK_TYPES:
+            if re.search(pattern, lowered):
+                task_type = candidate
+                break
+
+        reasons: list[str] = []
+        if self._cross_repository(lowered):
+            reasons.append("cross-repository work")
+        if re.search(r"\b(?:deploy|deployment|production rollout|release to prod)\b", lowered):
+            reasons.append("external deployment")
+        if re.search(
+            r"\b(?:rewrite|redesign|re-architect|architecture rewrite)\b", lowered
+        ) and re.search(r"\b(?:entire|whole|large|system|architecture)\b", lowered):
+            reasons.append("large architecture rewrite")
+
+        return TaskProfile(
+            task_type=task_type,
+            keywords=keywords,
+            symbols=symbols,
+            likely_modules=modules,
+            validation_requirements=validations,
+            out_of_scope=bool(reasons),
+            decomposition_reason="; ".join(reasons) if reasons else "",
+        )
+
+    @staticmethod
+    def _keywords(text: str) -> list[str]:
+        return list(dict.fromkeys(word.lower() for word in _WORD_RE.findall(text)))
+
+    @staticmethod
+    def _cross_repository(lowered: str) -> bool:
+        pattern = (
+            r"\b(?:cross[- ]repository|cross[- ]repo|multiple repositories|"
+            r"two repositories|different repositories)\b"
+        )
+        if re.search(pattern, lowered):
+            return True
+        return len(re.findall(r"\brepositor(?:y|ies)\b|\brepo\b", lowered)) >= 2
