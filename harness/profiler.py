@@ -8,17 +8,17 @@ from harness.domain import TaskProfile
 
 
 _VALIDATIONS = (
-    ("tests", r"\btests?\b|pytest|unit tests?|integration tests?"),
-    ("lint", r"\blint(?:ing)?\b|ruff|flake8|eslint"),
-    ("typecheck", r"\btype[- ]?check(?:ing)?\b|mypy|pyright"),
-    ("build", r"\bbuild(?:ing)?\b|compile"),
-    ("docker", r"\bdocker\b|container(?:ize|isation|ization)?"),
-    ("cli", r"\bcli\b|command[- ]line"),
-    ("api", r"\bapi\b|endpoint|rest|graphql"),
-    ("webui", r"\bweb\s*ui\b|\bui\b|frontend|browser"),
-    ("guardrail", r"\bguardrails?\b|safety boundary|approval"),
-    ("memory", r"\bmemory\b|remember|historical decision"),
-    ("report", r"\breport(?:ing)?\b|summary|release notes"),
+    ("tests", r"\btests?\b|\bpytest\b|\bunit tests?\b|\bintegration tests?\b"),
+    ("lint", r"\blint(?:ing)?\b|\bruff\b|\bflake8\b|\beslint\b"),
+    ("typecheck", r"\btype[- ]?check(?:ing)?\b|\bmypy\b|\bpyright\b"),
+    ("build", r"\bbuild(?:ing)?\b|\bcompile\b"),
+    ("docker", r"\bdocker\b|\bcontainer(?:ize|isation|ization)?\b"),
+    ("cli", r"\bcli\b|\bcommand[- ]line\b"),
+    ("api", r"\bapi\b|\bendpoint\b|\brest\b|\bgraphql\b"),
+    ("webui", r"\bweb\s*ui\b|\bui\b|\bfrontend\b|\bbrowser\b"),
+    ("guardrail", r"\bguardrails?\b|\bsafety boundary\b|\bapproval\b"),
+    ("memory", r"\bmemory\b|\bremember\b|\bhistorical decision\b"),
+    ("report", r"\breport(?:ing)?\b|\bsummary\b|\brelease notes\b"),
 )
 
 _TASK_TYPES = (
@@ -73,7 +73,10 @@ class TaskProfiler:
             reasons.append("external deployment")
         if re.search(
             r"\b(?:rewrite|redesign|re-architect|architecture rewrite)\b", lowered
-        ) and re.search(r"\b(?:entire|whole|large|system|architecture)\b", lowered):
+        ) and re.search(
+            r"\b(?:large|whole|entire|system[- ]wide)\b|\b(?:from scratch|as a whole)\b",
+            lowered,
+        ):
             reasons.append("large architecture rewrite")
 
         return TaskProfile(
@@ -98,4 +101,8 @@ class TaskProfiler:
         )
         if re.search(pattern, lowered):
             return True
-        return len(re.findall(r"\brepositor(?:y|ies)\b|\brepo\b", lowered)) >= 2
+        names = re.findall(
+            r"\b([a-z0-9][a-z0-9_.-]*)\s+(?:repository|repositories|repo|repos)\b",
+            lowered,
+        )
+        return len(set(names)) >= 2
