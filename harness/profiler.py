@@ -109,6 +109,13 @@ class TaskProfiler:
         )
         if re.search(pattern, lowered):
             return True
+        list_match = re.search(
+            r"\b([a-z0-9][a-z0-9_.-]*)\s+and\s+([a-z0-9][a-z0-9_.-]*)\s+"
+            r"(?:repositories|repos)\b",
+            lowered,
+        )
+        if list_match and list_match.group(1) != list_match.group(2):
+            return True
         names = re.findall(
             r"\b([a-z0-9][a-z0-9_.-]*)\s+(?:repository|repositories|repo|repos)\b",
             lowered,

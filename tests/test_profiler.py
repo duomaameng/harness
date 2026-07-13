@@ -14,6 +14,13 @@ def test_profiler_marks_cross_repo_deployment_out_of_scope():
     assert "deployment" in profile.decomposition_reason
 
 
+def test_profiler_marks_plural_repository_list_out_of_scope():
+    profile = TaskProfiler().profile("Update the payments and billing repositories.")
+
+    assert profile.out_of_scope is True
+    assert "cross-repository" in profile.decomposition_reason
+
+
 def test_profiler_keeps_local_deployment_request_in_scope():
     profile = TaskProfiler().profile("Deploy the local Docker preview for this repository.")
 
