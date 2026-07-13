@@ -102,6 +102,8 @@
 
 ### Task 2: Task Profiler And Validation Discovery Hints
 
+**Status:** Complete.
+
 **Parallel:** Yes, after Task 1.
 
 **Depends On:** Task 1.
