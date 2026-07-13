@@ -2,7 +2,6 @@
 name = "context-aware-harness"
 version = "0.1.0"
 description = "Context-Aware Coding Agent Harness for single-repository feature development"
-readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Harness Team" }]

@@ -11,7 +11,6 @@ from harness.domain import (
     ContextItem,
     ContextPackage,
     Feedback,
-    MemoryEntry,
     SchemaStatus,
     Task,
     TaskRun,
