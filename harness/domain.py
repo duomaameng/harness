@@ -239,6 +239,18 @@ class MemoryEntry:
     superseded_by: str | None = None
 
 
+@dataclass
+class TaskProfile:
+    """Deterministic discovery hints extracted from a task request."""
+    task_type: str = "feature"
+    keywords: list[str] = field(default_factory=list)
+    symbols: list[str] = field(default_factory=list)
+    likely_modules: list[str] = field(default_factory=list)
+    validation_requirements: list[str] = field(default_factory=list)
+    out_of_scope: bool = False
+    decomposition_reason: str = ""
+
+
 # -- Audit event helpers --------------------------------------------
 
 # SPEC section 8.10 lists these event types:
