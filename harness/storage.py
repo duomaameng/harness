@@ -218,6 +218,15 @@ class HarnessStorage:
             conn.execute(
                 "ALTER TABLE context_package_item ADD COLUMN ordinal INTEGER NOT NULL DEFAULT 0"
             )
+            conn.execute(
+                """UPDATE context_package_item AS current
+                   SET ordinal = (
+                       SELECT COUNT(*) - 1
+                       FROM context_package_item AS prior
+                       WHERE prior.package_id = current.package_id
+                         AND prior.rowid <= current.rowid
+                   )"""
+            )
         conn.commit()
         conn.close()
 
@@ -253,7 +262,8 @@ class HarnessStorage:
         sql = f"UPDATE {table} SET {sets} WHERE {pk_field}=?"
         conn = self._connect()
         try:
-            conn.execute(sql, list(fields.values()) + [pk_value])
+            conn.execute(sql, [_redact(value, key) for key, value in fields.items()]
+                         + [pk_value])
             conn.commit()
         finally:
             conn.close()

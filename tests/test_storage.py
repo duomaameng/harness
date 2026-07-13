@@ -1,6 +1,7 @@
 """Task 1 tests - domain model + storage layer (SPEC section 8)."""
 
 import json
+import sqlite3
 import tempfile
 from pathlib import Path
 
@@ -262,3 +263,47 @@ def test_storage_redacts_credential_like_values_before_persistence(storage):
     assert "audit-secret" not in audit_text
     assert "audit-token" not in audit_text
     assert "[REDACTED]" in action_row["args_json"]
+
+
+def test_storage_redacts_credential_like_values_in_updates(storage):
+    task = Task(title="T", repo_path=str(storage.repo_path))
+    storage.create_task(task)
+    run = TaskRun(task_id=task.id)
+    storage.create_task_run(run)
+
+    storage.update_task_run(run.id, stop_reason="password=top-secret")
+
+    row = storage.get_task_run(run.id)
+    assert row["stop_reason"] == "password=[REDACTED]"
+
+
+def test_storage_backfills_context_package_item_ordinals_for_legacy_rows():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        harness_dir = repo / ".harness"
+        harness_dir.mkdir(parents=True)
+        db_path = harness_dir / "harness.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "CREATE TABLE context_package_item ("
+            "package_id TEXT NOT NULL, item_id TEXT NOT NULL, "
+            "PRIMARY KEY (package_id, item_id))"
+        )
+        conn.executemany(
+            "INSERT INTO context_package_item (package_id, item_id) VALUES (?, ?)",
+            [("package-1", "item-2"), ("package-1", "item-1")],
+        )
+        conn.commit()
+        conn.close()
+
+        HarnessStorage(repo).init()
+
+        conn = sqlite3.connect(db_path)
+        rows = conn.execute(
+            "SELECT item_id, ordinal FROM context_package_item "
+            "WHERE package_id=? ORDER BY ordinal",
+            ("package-1",),
+        ).fetchall()
+        conn.close()
+
+        assert rows == [("item-2", 0), ("item-1", 1)]

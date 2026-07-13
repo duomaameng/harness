@@ -115,3 +115,59 @@ full suite: 38 passed
 
 `git diff --check` completed without whitespace errors. No Task 2+ modules or
 CI files were changed by this fix.
+
+## Second Fix Pass: Re-review Findings
+
+### RED
+
+Added regression tests before production changes:
+
+- `test_storage_redacts_credential_like_values_in_updates`
+- `test_storage_backfills_context_package_item_ordinals_for_legacy_rows`
+
+Command:
+
+```text
+C:\Users\duoma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe -m pytest tests/test_storage.py::test_storage_redacts_credential_like_values_in_updates tests/test_storage.py::test_storage_backfills_context_package_item_ordinals_for_legacy_rows -q
+```
+
+Observed RED output:
+
+```text
+2 failed, 0 passed
+FAILED ...::test_storage_redacts_credential_like_values_in_updates:
+  assert 'password=top-secret' == 'password=[REDACTED]'
+FAILED ...::test_storage_backfills_context_package_item_ordinals_for_legacy_rows:
+  assert [('item-1', 0), ('item-2', 0)] == [('item-2', 0), ('item-1', 1)]
+```
+
+These failures reproduced the two re-review findings: `_update()` persisted the
+credential-like value unchanged, and the migration left all legacy ordinals at
+zero.
+
+### GREEN
+
+Implemented the minimal fixes:
+
+- `_update()` now applies the existing recursive `_redact()` helper to every
+  value before SQLite persistence.
+- The `context_package_item.ordinal` migration backfills legacy rows with
+  deterministic per-package ordinals based on SQLite row order.
+- `.gitignore` already contains `.harness/`. The effective Windows path check is
+  `git check-ignore -v -- .harness\\sample.txt`, which reports `.gitignore:75`.
+
+Focused regression tests passed: `2 passed`.
+
+Required validation:
+
+```text
+tests/test_storage.py: 15 passed
+full suite: 40 passed
+git diff --check: passed
+```
+
+Files changed in this pass:
+
+- `harness/storage.py`
+- `tests/test_storage.py`
+- `.superpowers/sdd/task-1-report.md`
