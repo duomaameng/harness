@@ -62,3 +62,13 @@
 - Worktree: `C:\Users\duoma\java\harness\.worktrees\task-4-decision-memory`
 - TDD: added append-only memory supersession, active memory queries by repository/kind/keywords, and storage persistence support.
 - Validation: focused supersession test passed; full memory test file passed.
+
+## Task 5: Action Parser And Schema Feedback
+
+- Worktree: `C:\Users\duoma\java\harness\.worktrees\task-5-action-parser`
+- Branch: `codex/task-5-action-parser`
+- Implementer subagent: `019f5fd7-7efe-7d90-bba5-14b26b37beed`
+- TDD RED: `python` was unavailable on PATH; bundled Python ran `tests/test_actions.py::test_unknown_action_becomes_schema_feedback_and_is_not_executable` and failed with `ModuleNotFoundError: No module named 'harness.actions'`.
+- TDD GREEN: added `ActionParser` with JSON parsing, supported action validation, per-action argument checks, invalid `Action` creation, and schema feedback generation.
+- Refactor: kept the existing persisted `Action` shape stable by using `args_json` instead of adding unpersisted `Action` fields.
+- Validation: focused Task 5 test passed; `tests/test_actions.py` passed with 5 tests.
