@@ -578,11 +578,16 @@ class HarnessStorage:
         self._insert("memory_entry", entry)
         return entry
 
+    def supersede_memory_entry(self, entry_id: str, superseded_by: str) -> None:
+        self._update("memory_entry", "id", entry_id, superseded_by=superseded_by)
+
     def get_memory_entry(self, entry_id: str) -> dict | None:
         return self._fetchone("SELECT * FROM memory_entry WHERE id=?", (entry_id,))
 
     def list_memory_entries(self, repo_path: str | None = None,
-                            kind: str | None = None) -> list[dict]:
+                            kind: str | None = None,
+                            keywords: list[str] | None = None,
+                            include_superseded: bool = True) -> list[dict]:
         conditions = []
         params: list[Any] = []
         if repo_path is not None:
@@ -591,5 +596,13 @@ class HarnessStorage:
         if kind is not None:
             conditions.append("kind = ?")
             params.append(kind)
+        if not include_superseded:
+            conditions.append("superseded_by IS NULL")
+        for keyword in keywords or []:
+            conditions.append("LOWER(content) LIKE ?")
+            params.append(f"%{keyword.lower()}%")
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-        return self._fetchall(f"SELECT * FROM memory_entry {where}", tuple(params))
+        return self._fetchall(
+            f"SELECT * FROM memory_entry {where} ORDER BY created_at, id",
+            tuple(params),
+        )

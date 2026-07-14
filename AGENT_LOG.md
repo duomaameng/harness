@@ -56,3 +56,9 @@
 - TDD RED: `python` was unavailable; bundled Python ran `tests/test_repo_index.py::test_repository_index_maps_source_file_to_related_test` and failed with `ModuleNotFoundError: No module named 'harness.repo_index'`.
 - TDD GREEN: added deterministic `RepositoryIndex`, fixture repository, source-to-test mapping, project convention records, AST symbol extraction, ignored artifact filtering, and syntax-error file fallback.
 - Validation: focused test passed; `tests/test_repo_index.py` passed with 3 tests; full suite passed with 45 tests; `git diff --check` passed.
+
+## Task 4: Decision Memory Store
+
+- Worktree: `C:\Users\duoma\java\harness\.worktrees\task-4-decision-memory`
+- TDD: added append-only memory supersession, active memory queries by repository/kind/keywords, and storage persistence support.
+- Validation: focused supersession test passed; full memory test file passed.

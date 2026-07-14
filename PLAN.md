@@ -165,6 +165,8 @@
 
 ### Task 4: Decision Memory Store
 
+**Status:** Complete.
+
 **Parallel:** Yes, after Task 1.
 
 **Depends On:** Task 1.
