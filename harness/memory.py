@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from harness.domain import MemoryEntry
+from harness.domain import MemoryEntry, MemoryKind
 from harness.storage import HarnessStorage
+
+_VALID_MEMORY_KINDS = {memory_kind.value for memory_kind in MemoryKind}
 
 
 class MemoryStore:
@@ -24,6 +26,9 @@ class MemoryStore:
         confidence: float = 0.5,
         supersedes_id: str | None = None,
     ) -> MemoryEntry:
+        if kind not in _VALID_MEMORY_KINDS:
+            raise ValueError(f"Unknown memory kind: {kind}")
+
         if supersedes_id is not None:
             previous = self.storage.get_memory_entry(supersedes_id)
             if previous is None:
@@ -40,9 +45,10 @@ class MemoryStore:
             source_task_id=source_task_id,
             confidence=confidence,
         )
-        self.storage.create_memory_entry(entry)
         if supersedes_id is not None:
-            self.storage.supersede_memory_entry(supersedes_id, entry.id)
+            self.storage.create_memory_entry_superseding(entry, supersedes_id)
+        else:
+            self.storage.create_memory_entry(entry)
         return entry
 
     def query(
@@ -60,5 +66,3 @@ class MemoryStore:
             include_superseded=include_superseded,
         )
         return [MemoryEntry(**row) for row in rows]
-
-    search = query

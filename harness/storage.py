@@ -578,8 +578,40 @@ class HarnessStorage:
         self._insert("memory_entry", entry)
         return entry
 
-    def supersede_memory_entry(self, entry_id: str, superseded_by: str) -> None:
-        self._update("memory_entry", "id", entry_id, superseded_by=superseded_by)
+    def create_memory_entry_superseding(
+        self, entry: MemoryEntry, supersedes_id: str
+    ) -> MemoryEntry:
+        conn = self._connect()
+        try:
+            conn.execute(
+                """INSERT INTO memory_entry (id, repo_path, kind, content,
+                   source_task_id, confidence, created_at, superseded_by)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (
+                    entry.id,
+                    entry.repo_path,
+                    entry.kind,
+                    _redact(entry.content),
+                    entry.source_task_id,
+                    entry.confidence,
+                    entry.created_at,
+                    None,
+                ),
+            )
+            cursor = conn.execute(
+                "UPDATE memory_entry SET superseded_by=? "
+                "WHERE id=? AND repo_path=? AND kind=? AND superseded_by IS NULL",
+                (_redact(entry.id), supersedes_id, entry.repo_path, entry.kind),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError(f"Unknown active memory entry: {supersedes_id}")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        return entry
 
     def get_memory_entry(self, entry_id: str) -> dict | None:
         return self._fetchone("SELECT * FROM memory_entry WHERE id=?", (entry_id,))
