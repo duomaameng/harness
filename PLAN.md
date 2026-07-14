@@ -195,6 +195,8 @@
 
 ### Task 5: Action Parser And Schema Feedback
 
+**Status:** Complete.
+
 **Parallel:** Yes, after Task 1.
 
 **Depends On:** Task 1.
