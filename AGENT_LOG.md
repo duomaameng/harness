@@ -78,6 +78,17 @@
 - Worktree: `C:\Users\duoma\java\harness\.worktrees\task-6-guardrails`
 - Branch: `codex/task-6-guardrails`
 - Implementer subagent: `019f6017-b9da-7551-8cab-054bf13511ab`
+
+## Task 7: Tool Dispatcher With Redaction And Limits
+
+- Worktree: `C:\Users\duoma\java\harness\.worktrees\task-7-tool-dispatcher`
+- Branch: `codex/task-7-tool-dispatcher`
+- Implementer subagent: `019f603b-f017-7520-8278-4afc2701f222` (timed out after 60 seconds; controller continued from its RED test and closed it).
+- TDD RED: bundled Python ran `tests/test_tools.py::test_run_command_result_redacts_secret_like_output` and failed with `ModuleNotFoundError: No module named 'harness.tools'`.
+- TDD GREEN: added `ToolDispatcher` with controlled dispatch, redacted persisted tool results, command execution metadata, file/search/list/diff/memory actions, truncation limits, and changed-file tracking.
+- Refactor: extracted command argument handling so `run_command` accepts string commands and string argument lists.
+- Validation: focused Task 7 test passed; `tests/test_tools.py` passed with 1 test.
+- Review status: review skipped per user no-extra-check constraints.
 - TDD RED: `tests/test_guardrails.py::test_path_traversal_read_is_denied_before_dispatch` failed with `ModuleNotFoundError: No module named 'harness.guardrails'`.
 - TDD GREEN: added `Guardrail` path canonicalization, sensitive path checks, risky write approval, validation-command allow-listing, and dangerous command decisions; focused test passed.
 - Refactor: extracted repeated allow-result construction into `_allow`.

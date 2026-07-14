@@ -255,6 +255,8 @@
 
 ### Task 7: Tool Dispatcher With Redaction And Limits
 
+**Status:** Complete.
+
 **Parallel:** No.
 
 **Depends On:** Tasks 1, 3, 4, 5.
