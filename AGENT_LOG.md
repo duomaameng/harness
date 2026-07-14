@@ -72,3 +72,13 @@
 - TDD GREEN: added `ActionParser` with JSON parsing, supported action validation, per-action argument checks, invalid `Action` creation, and schema feedback generation.
 - Refactor: kept the existing persisted `Action` shape stable by using `args_json` instead of adding unpersisted `Action` fields.
 - Validation: focused Task 5 test passed; `tests/test_actions.py` passed with 5 tests.
+
+## Task 6: Guardrails And Approval Classification
+
+- Worktree: `C:\Users\duoma\java\harness\.worktrees\task-6-guardrails`
+- Branch: `codex/task-6-guardrails`
+- Implementer subagent: `019f6017-b9da-7551-8cab-054bf13511ab`
+- TDD RED: `tests/test_guardrails.py::test_path_traversal_read_is_denied_before_dispatch` failed with `ModuleNotFoundError: No module named 'harness.guardrails'`.
+- TDD GREEN: added `Guardrail` path canonicalization, sensitive path checks, risky write approval, validation-command allow-listing, and dangerous command decisions; focused test passed.
+- Refactor: extracted repeated allow-result construction into `_allow`.
+- Validation: `tests/test_guardrails.py` passed with 1 test after implementation and again after refactor.

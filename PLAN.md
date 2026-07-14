@@ -225,6 +225,8 @@
 
 ### Task 6: Guardrails And Approval Classification
 
+**Status:** Complete.
+
 **Parallel:** No.
 
 **Depends On:** Tasks 1, 4, 5.
