@@ -203,6 +203,7 @@ class ToolResult:
     exit_code: int | None = None
     changed_files: list[str] | None = None
     duration_ms: int | None = None
+    metadata: dict[str, Any] | None = None
     created_at: str = field(default_factory=_utcnow)
 
 

@@ -98,6 +98,7 @@ CREATE TABLE IF NOT EXISTS tool_result (
     exit_code       INTEGER,
     changed_files   TEXT,
     duration_ms     INTEGER,
+    metadata        TEXT,
     created_at      TEXT NOT NULL
 );
 
@@ -275,6 +276,11 @@ class HarnessStorage:
                     "ALTER TABLE context_package_item "
                     "ADD COLUMN ordinal INTEGER NOT NULL DEFAULT 0"
                 )
+            tool_columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(tool_result)")
+            }
+            if "metadata" not in tool_columns:
+                conn.execute("ALTER TABLE tool_result ADD COLUMN metadata TEXT")
             _backfill_context_package_item_ordinals(conn)
             conn.commit()
         finally:
@@ -483,10 +489,14 @@ class HarnessStorage:
                 _redact_json_text(json.dumps(result.changed_files))
                 if result.changed_files else None
             )
+            metadata = (
+                _redact_json_text(json.dumps(result.metadata))
+                if result.metadata else None
+            )
             conn.execute(
                 """INSERT INTO tool_result (id, action_id, status, stdout_excerpt,
-                   stderr_excerpt, exit_code, changed_files, duration_ms, created_at)
-                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                   stderr_excerpt, exit_code, changed_files, duration_ms, metadata, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
                 (
                     result.id,
                     result.action_id,
@@ -496,6 +506,7 @@ class HarnessStorage:
                     result.exit_code,
                     changed,
                     result.duration_ms,
+                    metadata,
                     result.created_at,
                 ),
             )
