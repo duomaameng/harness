@@ -108,6 +108,13 @@ class ToolResultStatus(str, Enum):
     TIMEOUT = "timeout"
 
 
+class GuardrailRisk(str, Enum):
+    """Risk level assigned by guardrail evaluation."""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
 # -- Dataclasses ----------------------------------------------------
 
 
@@ -211,6 +218,14 @@ class Feedback:
     locations: list[str] | None = None
     raw_excerpt: str | None = None
     created_at: str = field(default_factory=_utcnow)
+
+
+@dataclass
+class GuardrailResult:
+    """Decision returned before an action is dispatched."""
+    status: str = GuardrailDecision.ALLOW.value
+    risk_level: str = GuardrailRisk.LOW.value
+    reason: str = ""
 
 
 @dataclass
