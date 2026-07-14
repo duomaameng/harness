@@ -57,6 +57,13 @@ class ToolDispatcher:
         start = time.perf_counter()
         try:
             stdout, stderr, exit_code, changed_files = handler(action, args, repo)
+            stdout_limit = (
+                self.limits.file_chars
+                if action.action_type == ActionType.READ_FILE.value
+                else self.limits.search_chars
+                if action.action_type == ActionType.SEARCH.value
+                else self.limits.stdout_chars
+            )
             status = (
                 ToolResultStatus.SUCCESS.value
                 if exit_code in (None, 0)
@@ -66,18 +73,41 @@ class ToolDispatcher:
             stdout = self._decode(exc.stdout)
             stderr = self._decode(exc.stderr) or "Command timed out."
             exit_code = None
-            changed_files = self._changed_files(repo)
+            changed_files = getattr(exc, "changed_files", None)
+            stdout_limit = self.limits.stdout_chars
             status = ToolResultStatus.TIMEOUT.value
+        except Exception as exc:
+            stdout = None
+            stderr = str(exc)
+            exit_code = 1
+            changed_files = None
+            stdout_limit = self.limits.stdout_chars
+            status = ToolResultStatus.ERROR.value
         duration_ms = int((time.perf_counter() - start) * 1000)
+
+        stdout_excerpt, stdout_meta = self._safe_excerpt_with_metadata(
+            stdout, stdout_limit
+        )
+        stderr_excerpt, stderr_meta = self._safe_excerpt_with_metadata(
+            stderr, self.limits.stderr_chars
+        )
 
         result = ToolResult(
             action_id=action.id,
             status=status,
-            stdout_excerpt=self._safe_excerpt(stdout, self.limits.stdout_chars),
-            stderr_excerpt=self._safe_excerpt(stderr, self.limits.stderr_chars),
+            stdout_excerpt=stdout_excerpt,
+            stderr_excerpt=stderr_excerpt,
             exit_code=exit_code,
             changed_files=changed_files,
             duration_ms=duration_ms,
+            metadata={
+                "stdout_redacted": stdout_meta["redacted"],
+                "stdout_truncated": stdout_meta["truncated"],
+                "stdout_limit": stdout_limit,
+                "stderr_redacted": stderr_meta["redacted"],
+                "stderr_truncated": stderr_meta["truncated"],
+                "stderr_limit": self.limits.stderr_chars,
+            },
         )
         self.storage.create_tool_result(result)
         return result
@@ -102,7 +132,7 @@ class ToolDispatcher:
     ) -> tuple[str, str | None, int | None, list[str] | None]:
         del action
         path = self._repo_path(repo, self._string_arg(args, "path"))
-        return path.read_text(encoding="utf-8")[: self.limits.file_chars], None, 0, None
+        return path.read_text(encoding="utf-8"), None, 0, None
 
     def _write_file(
         self, action: Action, args: dict[str, object], repo: Path
@@ -152,18 +182,21 @@ class ToolDispatcher:
     ) -> tuple[str, str | None, int | None, list[str] | None]:
         del action
         command = self._command_arg(args)
-        before = set(self._changed_files(repo))
-        completed = subprocess.run(
-            command,
-            cwd=repo,
-            text=True,
-            capture_output=True,
-            shell=isinstance(command, str),
-            timeout=self.limits.command_timeout_seconds,
-            check=False,
-        )
-        after = set(self._changed_files(repo))
-        changed = sorted(after - before) or sorted(after)
+        before = self._changed_file_snapshot(repo)
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=repo,
+                text=True,
+                capture_output=True,
+                shell=True,
+                timeout=self.limits.command_timeout_seconds,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            exc.changed_files = self._changed_files_since(repo, before)
+            raise
+        changed = self._changed_files_since(repo, before)
         return completed.stdout, completed.stderr, completed.returncode, changed or None
 
     def _show_diff(
@@ -208,11 +241,9 @@ class ToolDispatcher:
             raise ValueError(f"Missing or invalid string argument: {name}")
         return value
 
-    def _command_arg(self, args: dict[str, object]) -> str | list[str]:
+    def _command_arg(self, args: dict[str, object]) -> str:
         value = args.get("command")
         if isinstance(value, str):
-            return value
-        if isinstance(value, list) and all(isinstance(part, str) for part in value):
             return value
         raise ValueError("Missing or invalid command argument")
 
@@ -236,13 +267,48 @@ class ToolDispatcher:
                 changed.append(path)
         return changed
 
+    def _changed_file_snapshot(self, repo: Path) -> dict[str, tuple[int, int]]:
+        snapshot: dict[str, tuple[int, int]] = {}
+        for path in self._changed_files(repo):
+            candidate = repo / path
+            if candidate.is_file():
+                stat = candidate.stat()
+                snapshot[path] = (stat.st_mtime_ns, stat.st_size)
+            else:
+                snapshot[path] = (-1, -1)
+        return snapshot
+
+    def _changed_files_since(
+        self, repo: Path, before: dict[str, tuple[int, int]]
+    ) -> list[str] | None:
+        changed: list[str] = []
+        for path in self._changed_files(repo):
+            candidate = repo / path
+            if candidate.is_file():
+                stat = candidate.stat()
+                current = (stat.st_mtime_ns, stat.st_size)
+            else:
+                current = (-1, -1)
+            if path not in before or before[path] != current:
+                changed.append(path)
+        return sorted(changed) or None
+
     def _safe_excerpt(self, value: str | None, limit: int) -> str | None:
+        return self._safe_excerpt_with_metadata(value, limit)[0]
+
+    def _safe_excerpt_with_metadata(
+        self, value: str | None, limit: int
+    ) -> tuple[str | None, dict[str, bool]]:
         if value is None:
-            return None
+            return None, {"redacted": False, "truncated": False}
         redacted = str(_redact(value))
+        was_redacted = redacted != value
         if len(redacted) <= limit:
-            return redacted
-        return redacted[: max(limit - 3, 0)] + "..."
+            return redacted, {"redacted": was_redacted, "truncated": False}
+        return (
+            redacted[: max(limit - 3, 0)] + "...",
+            {"redacted": was_redacted, "truncated": True},
+        )
 
     def _relative(self, repo: Path, path: Path) -> str:
         return path.resolve().relative_to(repo).as_posix()
