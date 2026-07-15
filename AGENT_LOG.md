@@ -139,3 +139,17 @@
 - Refactor: extracted supported `.env` credential key names into a class constant.
 - Validation: focused report redaction test passed; bearer-token redaction test passed; `tests/test_auth_reports.py` passed with 5 tests after refactor.
 - Review status: review skipped per user no-extra-check constraints.
+
+## Task 12: Core Service, CLI, API, And WebUI Observability
+
+- Worktree: `C:\Users\duoma\java\harness\.worktrees\task-12-service-cli-api`
+- Branch: `codex/task-12-service-cli-api`
+- Implementer subagent: `019f649b-c2dd-7700-b6ae-1aad53a71eb5` (timed out after 60 seconds; controller continued from its RED test and closed it).
+- Scope note: completed Task 12 outside `harness/webui.py`; WebUI design/implementation is deferred per user request.
+- TDD RED:
+  - `python` was unavailable on PATH.
+  - Bundled Python ran `tests/test_service_cli_api.py::test_cli_run_with_mock_llm_creates_task_run_and_context_trace` and failed with `ModuleNotFoundError: No module named 'harness.cli'`.
+- TDD GREEN: added `CoreService`, Typer CLI, FastAPI API adapter, and service/CLI/API tests; focused CLI run test passed.
+- Refactor: aligned service helper exports and CLI/service contracts after the task file validation exposed an import mismatch.
+- Validation: `tests/test_service_cli_api.py` passed with 4 tests after refactor.
+- Review status: review skipped per user no-extra-check constraints.

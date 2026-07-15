@@ -410,6 +410,8 @@
 
 ### Task 12: Core Service, CLI, API, And WebUI Observability
 
+**Status:** Complete for non-WebUI scope. `harness/webui.py` is intentionally deferred for separate design discussion.
+
 **Parallel:** No.
 
 **Depends On:** Tasks 8, 9, 10, 11.
