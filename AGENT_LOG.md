@@ -93,3 +93,14 @@
 - Refactor: extracted command argument handling while keeping `run_command` aligned with the string command schema.
 - Validation: focused Task 7 test passed; `tests/test_tools.py` passed with 1 test.
 - Review status: review skipped per user no-extra-check constraints.
+
+## Task 8: Context Engine With Scoring, Reasons, And Budget Trimming
+
+- Worktree: `C:\Users\duoma\java\harness\.worktrees\task-8-context-engine`
+- Branch: `codex/task-8-context-engine`
+- Implementer subagent: `019f63e3-339e-7c52-a8cf-357b66c88fc8` (timed out after 60 seconds; controller continued from its RED test and closed it).
+- TDD RED: bundled Python ran `tests/test_context_engine.py::test_context_package_includes_code_test_convention_and_memory_reasons` and failed with `ModuleNotFoundError: No module named 'harness.context_engine'`.
+- TDD GREEN: added `ContextEngine` with deterministic repository and memory candidates, scoring, selection reasons, budget trimming, and persisted context package records; focused test passed.
+- Refactor: reused a single memory store and extracted budget-aware append logic.
+- Validation: `tests/test_context_engine.py` passed with 1 test.
+- Review status: review skipped per user no-extra-check constraints.
