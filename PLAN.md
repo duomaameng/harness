@@ -379,6 +379,8 @@
 
 ### Task 11: Credentials, Reports, And Export Redaction
 
+**Status:** Complete.
+
 **Parallel:** Yes, after Tasks 1 and 2.
 
 **Depends On:** Tasks 1, 2.
