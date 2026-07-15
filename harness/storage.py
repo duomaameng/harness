@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS feedback (
     summary     TEXT NOT NULL DEFAULT '',
     locations   TEXT,
     raw_excerpt TEXT,
+    passed      INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL
 );
 
@@ -281,6 +282,13 @@ class HarnessStorage:
             }
             if "metadata" not in tool_columns:
                 conn.execute("ALTER TABLE tool_result ADD COLUMN metadata TEXT")
+            feedback_columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(feedback)")
+            }
+            if "passed" not in feedback_columns:
+                conn.execute(
+                    "ALTER TABLE feedback ADD COLUMN passed INTEGER NOT NULL DEFAULT 0"
+                )
             _backfill_context_package_item_ordinals(conn)
             conn.commit()
         finally:
@@ -541,8 +549,8 @@ class HarnessStorage:
             locs = _redact_json_text(json.dumps(fb.locations)) if fb.locations else None
             conn.execute(
                 """INSERT INTO feedback (id, task_run_id, round_index, source,
-                   category, summary, locations, raw_excerpt, created_at)
-                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                   category, summary, locations, raw_excerpt, passed, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
                 (
                     fb.id,
                     fb.task_run_id,
@@ -552,6 +560,7 @@ class HarnessStorage:
                     _redact(fb.summary),
                     locs,
                     _redact(fb.raw_excerpt),
+                    1 if fb.passed else 0,
                     fb.created_at,
                 ),
             )

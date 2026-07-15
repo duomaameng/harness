@@ -218,6 +218,7 @@ class Feedback:
     summary: str = ""
     locations: list[str] | None = None
     raw_excerpt: str | None = None
+    passed: bool = False
     created_at: str = field(default_factory=_utcnow)
 
 
