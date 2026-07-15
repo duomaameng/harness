@@ -18,8 +18,8 @@ class FeedbackEngine:
     def discover_validation_commands(
         self,
         repo_root: Path,
-        configured: list[str] | None = None,
-    ) -> list[str]:
+        configured: list[str | Sequence[str]] | None = None,
+    ) -> list[str | Sequence[str]]:
         """Prefer configured validation commands, then infer common defaults."""
         if configured:
             return configured
@@ -61,14 +61,18 @@ class FeedbackEngine:
                 timeout=timeout_seconds,
             )
         except subprocess.TimeoutExpired as exc:
-            return self.timeout_feedback(command_label, exc.stdout or "", exc.stderr or "")
+            feedback = self.timeout_feedback(command_label, exc.stdout or "", exc.stderr or "")
+            feedback.passed = False
+            return feedback
         except OSError as exc:
-            return Feedback(
+            feedback = Feedback(
                 source=FeedbackSource.BUILD.value,
                 category=FeedbackCategory.UNKNOWN.value,
                 summary=f"Validation command could not start: {command_label}",
                 raw_excerpt=self._excerpt(str(exc)),
             )
+            feedback.passed = False
+            return feedback
 
         return self.parse_validation_result(
             command=command_label,
@@ -91,23 +95,27 @@ class FeedbackEngine:
         category = self._category_for_output(source, output, exit_code)
         locations = self._locations_for_output(output)
         summary = self._summary_for_output(command, category, locations, exit_code)
-        return Feedback(
+        feedback = Feedback(
             source=source,
             category=category,
             summary=summary,
             locations=locations,
             raw_excerpt=self._excerpt(output),
         )
+        feedback.passed = exit_code == 0
+        return feedback
 
     def timeout_feedback(self, command: str, stdout: str, stderr: str) -> Feedback:
         """Create structured feedback for a validation timeout."""
         output = (stdout or "") + "\n" + (stderr or "")
-        return Feedback(
+        feedback = Feedback(
             source=self._source_for_command(command),
             category=FeedbackCategory.UNKNOWN.value,
             summary=f"Validation command timeout: {command}",
             raw_excerpt=self._excerpt(output),
         )
+        feedback.passed = False
+        return feedback
 
     def should_stop_early(self, feedback: list[Feedback]) -> bool:
         """Return True after the same failure category and key location repeats."""
@@ -119,6 +127,7 @@ class FeedbackEngine:
         current_location = self._key_location(current)
         return (
             previous.category == current.category
+            and previous.round_index != current.round_index
             and previous_location is not None
             and previous_location == current_location
         )
@@ -180,6 +189,8 @@ class FeedbackEngine:
         exit_code: int,
     ) -> str:
         location = f" at {locations[0]}" if locations else ""
+        if exit_code == 0:
+            return f"{command} passed with {category}{location} (exit {exit_code})"
         return f"{command} failed with {category}{location} (exit {exit_code})"
 
     def _excerpt(self, output: str, limit: int = 1000) -> str:

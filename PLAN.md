@@ -347,6 +347,8 @@
 
 ### Task 10: LLM Clients And Agent Runner Main Loop
 
+**Status:** Complete.
+
 **Parallel:** Yes, after Task 8.
 
 **Depends On:** Task 8.

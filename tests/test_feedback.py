@@ -151,14 +151,29 @@ def test_feedback_engine_keeps_generic_exit_code_unknown():
     assert feedback.category == FeedbackCategory.UNKNOWN.value
 
 
+def test_feedback_engine_summarizes_successful_validation_as_passed():
+    feedback = FeedbackEngine().parse_validation_result(
+        command="python -m pytest",
+        exit_code=0,
+        stdout="passed",
+        stderr="",
+    )
+
+    assert feedback.passed is True
+    assert "passed with" in feedback.summary
+    assert "failed with" not in feedback.summary
+
+
 def test_repeated_same_pytest_failure_stops_after_second_occurrence():
     first_failure = Feedback(
+        round_index=0,
         source=FeedbackSource.TEST.value,
         category=FeedbackCategory.ASSERTION_FAILURE.value,
         summary="test_math.py::test_addition failed",
         locations=["tests/test_math.py::test_addition"],
     )
     repeated_failure = Feedback(
+        round_index=1,
         source=FeedbackSource.TEST.value,
         category=FeedbackCategory.ASSERTION_FAILURE.value,
         summary="test_math.py::test_addition failed again",
@@ -168,3 +183,22 @@ def test_repeated_same_pytest_failure_stops_after_second_occurrence():
     engine = FeedbackEngine()
 
     assert engine.should_stop_early([first_failure, repeated_failure])
+
+
+def test_repeated_same_failure_in_same_round_does_not_stop_early():
+    first_failure = Feedback(
+        round_index=0,
+        source=FeedbackSource.TEST.value,
+        category=FeedbackCategory.ASSERTION_FAILURE.value,
+        summary="first command failed",
+        locations=["tests/test_math.py::test_addition"],
+    )
+    same_round_failure = Feedback(
+        round_index=0,
+        source=FeedbackSource.TEST.value,
+        category=FeedbackCategory.ASSERTION_FAILURE.value,
+        summary="second command failed",
+        locations=["tests/test_math.py::test_addition"],
+    )
+
+    assert not FeedbackEngine().should_stop_early([first_failure, same_round_failure])
