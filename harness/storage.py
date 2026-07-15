@@ -471,6 +471,9 @@ class HarnessStorage:
             (task_run_id,),
         )
 
+    def update_action_guardrail(self, action_id: str, guardrail_status: str) -> None:
+        self._update("action", "id", action_id, guardrail_status=guardrail_status)
+
     # -- tool_result -------------------------------------------------
 
     def create_tool_result(self, result: ToolResult) -> ToolResult:
@@ -521,6 +524,14 @@ class HarnessStorage:
 
     def get_tool_result(self, result_id: str) -> dict | None:
         return self._fetchone("SELECT * FROM tool_result WHERE id=?", (result_id,))
+
+    def list_tool_results_for_run(self, task_run_id: str) -> list[dict]:
+        return self._fetchall(
+            "SELECT tool_result.* FROM tool_result "
+            "JOIN action ON action.id=tool_result.action_id "
+            "WHERE action.task_run_id=? ORDER BY tool_result.created_at",
+            (task_run_id,),
+        )
 
     # -- feedback ----------------------------------------------------
 

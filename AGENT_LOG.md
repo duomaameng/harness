@@ -115,3 +115,14 @@
 - Refactor: reused a single memory store and extracted budget-aware append logic.
 - Validation: `tests/test_context_engine.py` passed with 1 test.
 - Review status: review skipped per user no-extra-check constraints.
+
+## Task 10: LLM Clients And Agent Runner Main Loop
+
+- Worktree: `C:\Users\duoma\java\harness\.worktrees\task-10-llm-runner`
+- Branch: `codex/task-10-llm-runner`
+- Implementer subagent: `019f643d-d036-7580-a846-631f63cc5a98` (timed out after 60 seconds without file changes; controller continued locally and closed it).
+- TDD RED: `tests/test_runner.py::test_invalid_action_from_mock_llm_becomes_feedback_without_tool_execution` failed with `ModuleNotFoundError: No module named 'harness.llm'`.
+- TDD GREEN: added `MockLLM`, `OpenAICompatibleClient`, and a bounded `AgentRunner` path that parses invalid model output into schema feedback without dispatching tools; focused test passed.
+- Refactor RED/GREEN: added denied-command runner coverage, first failed because `HarnessStorage.update_action_guardrail` was missing, then passed after adding the minimal storage update method.
+- Validation: `tests/test_runner.py` passed with 2 tests after implementation/refactor.
+- Review status: review skipped per user no-extra-check constraints.
