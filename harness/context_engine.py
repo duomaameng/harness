@@ -15,6 +15,15 @@ from harness.storage import HarnessStorage
 class ContextEngine:
     """Build auditable context packages from static index data and memory."""
 
+    _MEMORY_CONTEXT_KINDS = {
+        MemoryKind.MODULE_RESPONSIBILITY.value,
+        MemoryKind.PROJECT_CONVENTION.value,
+        MemoryKind.HISTORICAL_DECISION.value,
+        MemoryKind.REJECTED_ALTERNATIVE.value,
+        MemoryKind.FAILURE_PATTERN.value,
+        MemoryKind.TASK_SUMMARY.value,
+    }
+
     _SOURCE_PRIORITY = {
         ContextItemKind.CODE_STRUCTURE.value: 0,
         ContextItemKind.TEST_MAPPING.value: 1,
@@ -43,11 +52,11 @@ class ContextEngine:
         keywords = self._keywords(task_request)
         candidates = self._repository_candidates(keywords)
         candidates.extend(self._memory_candidates(keywords))
-
+        annotated = [self._with_score_and_source(item, keywords) for item in candidates]
         scored = sorted(
-            candidates,
+            annotated,
             key=lambda item: (
-                -self._score(item, keywords),
+                -item.metadata["score"],
                 self._SOURCE_PRIORITY.get(item.kind, 99),
                 item.source_path or "",
                 item.symbol or "",
@@ -71,19 +80,22 @@ class ContextEngine:
 
     def _memory_candidates(self, keywords: set[str]) -> list[ContextItem]:
         memories_by_id = {}
+        matched_keywords: dict[str, set[str]] = {}
         for keyword in sorted(keywords):
-            for memory in self.memory_store.query(
-                repo_path=str(self.repo_path),
-                kind=MemoryKind.HISTORICAL_DECISION.value,
-                keywords=[keyword],
-            ):
-                memories_by_id[memory.id] = memory
+            for memory_kind in sorted(self._MEMORY_CONTEXT_KINDS):
+                for memory in self.memory_store.query(
+                    repo_path=str(self.repo_path),
+                    kind=memory_kind,
+                    keywords=[keyword],
+                ):
+                    memories_by_id[memory.id] = memory
+                    matched_keywords.setdefault(memory.id, set()).add(keyword)
         memories = list(memories_by_id.values())
-        if not memories:
-            memories = self.memory_store.query(repo_path=str(self.repo_path), keywords=[])
         candidates = []
         for memory in memories:
-            reason = "decision memory matched task keywords"
+            reason = "decision memory matched task keyword: " + ", ".join(
+                sorted(matched_keywords[memory.id])
+            )
             candidates.append(ContextItem(
                 repo_path=str(self.repo_path),
                 kind=ContextItemKind.DECISION_MEMORY.value,
@@ -104,10 +116,17 @@ class ContextEngine:
         metadata.setdefault("selection_reason", self._reason_for(item, keywords))
         return replace(item, metadata=metadata)
 
+    def _with_score_and_source(
+        self, item: ContextItem, keywords: set[str]
+    ) -> ContextItem:
+        metadata = dict(item.metadata or {})
+        metadata["source"] = item.kind
+        metadata["score"] = self._score(item, keywords)
+        metadata["selection_reason"] = self._reason_for(replace(item, metadata=metadata), keywords)
+        return replace(item, metadata=metadata)
+
     def _score(self, item: ContextItem, keywords: set[str]) -> int:
-        haystack = " ".join(
-            part or "" for part in [item.source_path, item.symbol, item.summary, item.content_ref]
-        ).lower()
+        haystack = self._search_text(item)
         score = sum(3 for keyword in keywords if keyword in haystack)
         if item.kind == ContextItemKind.TEST_MAPPING.value:
             score += 8
@@ -122,15 +141,15 @@ class ContextEngine:
     def _trim(self, items: list[ContextItem]) -> list[ContextItem]:
         selected: list[ContextItem] = []
         total = 0
-        for required_kind in self._SOURCE_PRIORITY:
-            item = next((candidate for candidate in items if candidate.kind == required_kind), None)
-            if item is not None and item not in selected:
-                total = self._append_if_budget_allows(selected, item, total)
-
-        for item in items:
-            if item in selected:
-                continue
-            total = self._append_if_budget_allows(selected, item, total)
+        priority_groups = (
+            {ContextItemKind.CODE_STRUCTURE.value, ContextItemKind.TEST_MAPPING.value},
+            {ContextItemKind.PROJECT_CONVENTION.value},
+            {ContextItemKind.DECISION_MEMORY.value},
+        )
+        for group in priority_groups:
+            for item in items:
+                if item.kind in group and item not in selected:
+                    total = self._append_if_budget_allows(selected, item, total)
         return selected
 
     def _append_if_budget_allows(
@@ -145,9 +164,7 @@ class ContextEngine:
     def _reason_for(self, item: ContextItem, keywords: set[str]) -> str:
         matched = [
             keyword for keyword in sorted(keywords)
-            if keyword in " ".join(
-                part or "" for part in [item.source_path, item.symbol, item.summary]
-            ).lower()
+            if keyword in self._search_text(item)
         ]
         if matched:
             return "matched task keyword: " + ", ".join(matched)
@@ -156,6 +173,18 @@ class ContextEngine:
         if item.kind == ContextItemKind.TEST_MAPPING.value:
             return item.metadata.get("selection_reason", "related test mapping") if item.metadata else "related test mapping"
         return "static repository structure"
+
+    @staticmethod
+    def _search_text(item: ContextItem) -> str:
+        return " ".join(
+            part or "" for part in [
+                item.source_path,
+                item.symbol,
+                item.summary,
+                item.content_ref,
+                str(item.metadata or {}),
+            ]
+        ).lower()
 
     def _package_reason(self, items: list[ContextItem]) -> str:
         kinds = sorted({item.kind for item in items})
