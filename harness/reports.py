@@ -15,7 +15,7 @@ class ReportExporter:
     _SENSITIVE_ASSIGNMENT = re.compile(
         r"(\b[A-Za-z0-9_-]*(?:api[_-]?key|access[_-]?token|auth[_-]?token|"
         r"password|passwd|secret|credential|private[_-]?key|token)\s*[:=]\s*)"
-        r"([^\s,;}]+)",
+        r"(\"(?:\\.|[^\"])*\"|'(?:\\.|[^'])*'|[^\s,;}]+)",
         re.IGNORECASE,
     )
 
@@ -47,6 +47,12 @@ class ReportExporter:
         if isinstance(value, tuple):
             return [cls._redact(item) for item in value]
         if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, (Mapping, list)):
+                return json.dumps(cls._redact(parsed), ensure_ascii=False)
             value = cls._SENSITIVE_ASSIGNMENT.sub(r"\1[REDACTED]", value)
             value = cls._BEARER.sub("Bearer [REDACTED]", value)
             return cls._SECRET_VALUE.sub("[REDACTED]", value)

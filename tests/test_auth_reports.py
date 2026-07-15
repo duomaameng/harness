@@ -41,6 +41,57 @@ def test_report_export_redacts_bearer_token_from_action_trace():
     assert "secret-token-value" not in json.dumps(payload)
 
 
+def test_report_export_redacts_quoted_secret_values_with_spaces():
+    report = {
+        "action_trace": [
+            {
+                "tool": "run_command",
+                "excerpt": 'login failed with password="value with spaces"',
+            }
+        ],
+    }
+
+    markdown = ReportExporter(report).to_markdown()
+    payload = json.loads(ReportExporter(report).to_json())
+
+    assert "with spaces" not in markdown
+    assert "with spaces" not in json.dumps(payload)
+
+
+def test_report_export_redacts_escaped_quoted_secret_values():
+    report = {
+        "action_trace": [
+            {
+                "tool": "run_command",
+                "excerpt": 'login failed with password="a\\"b c"',
+            }
+        ],
+    }
+
+    markdown = ReportExporter(report).to_markdown()
+    payload = json.loads(ReportExporter(report).to_json())
+
+    assert "b c" not in markdown
+    assert "b c" not in json.dumps(payload)
+
+
+def test_report_export_redacts_json_string_secret_fields():
+    report = {
+        "action_trace": [
+            {
+                "tool": "run_command",
+                "excerpt": '{"password": "hunter2"}',
+            }
+        ],
+    }
+
+    markdown = ReportExporter(report).to_markdown()
+    payload = json.loads(ReportExporter(report).to_json())
+
+    assert "hunter2" not in markdown
+    assert "hunter2" not in json.dumps(payload)
+
+
 class FakeKeyring:
     def __init__(self):
         self.values = {}
@@ -55,6 +106,11 @@ class FakeKeyring:
         self.values.pop((service, username), None)
 
 
+class BrokenKeyring:
+    def get_password(self, service, username):
+        raise RuntimeError("backend unavailable at C:/Users/secret-store")
+
+
 def test_credentials_use_keyring_for_set_status_and_clear():
     keyring = FakeKeyring()
     credentials = CredentialService(keyring_backend=keyring)
@@ -62,9 +118,34 @@ def test_credentials_use_keyring_for_set_status_and_clear():
     credentials.set("sk-keyring-secret")
 
     status = credentials.status()
-    assert status == {"configured": True, "source": "keyring", "risk": None}
+    assert status == {
+        "configured": True,
+        "provider": "openai-compatible",
+        "source": "keyring",
+        "risk": None,
+    }
     assert credentials.clear() is True
     assert credentials.status()["configured"] is False
+
+
+def test_credentials_status_reports_provider_when_unconfigured():
+    status = CredentialService(keyring_backend=FakeKeyring()).status()
+
+    assert status["provider"] == "openai-compatible"
+    assert status["configured"] is False
+
+
+def test_credentials_status_reports_keyring_backend_errors():
+    status = CredentialService(keyring_backend=BrokenKeyring()).status()
+
+    assert status["configured"] is False
+    assert status["source"] == "keyring"
+    assert "unavailable" in status["risk"].lower()
+    assert "C:/Users/secret-store" not in status["risk"]
+
+
+def test_credentials_clear_handles_keyring_backend_errors():
+    assert CredentialService(keyring_backend=BrokenKeyring()).clear() is False
 
 
 def test_credentials_report_env_fallback_as_plaintext_risk_without_secret(tmp_path):
@@ -77,6 +158,18 @@ def test_credentials_report_env_fallback_as_plaintext_risk_without_secret(tmp_pa
     assert status["source"] == ".env"
     assert "plaintext" in status["risk"].lower()
     assert "sk-dotenv-secret" not in json.dumps(status)
+
+
+def test_credentials_report_export_style_env_fallback_without_secret(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text('export OPENAI_API_KEY="sk-export-secret"\n', encoding="utf-8")
+
+    status = CredentialService(keyring_backend=FakeKeyring(), env_file=env_file).status()
+
+    assert status["configured"] is True
+    assert status["source"] == ".env"
+    assert "plaintext" in status["risk"].lower()
+    assert "sk-export-secret" not in json.dumps(status)
 
 
 def test_report_export_preserves_run_sections():
