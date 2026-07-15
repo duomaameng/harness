@@ -126,3 +126,16 @@
 - Refactor RED/GREEN: added denied-command runner coverage, first failed because `HarnessStorage.update_action_guardrail` was missing, then passed after adding the minimal storage update method.
 - Validation: `tests/test_runner.py` passed with 2 tests after implementation/refactor.
 - Review status: review skipped per user no-extra-check constraints.
+
+## Task 11: Credentials, Reports, And Export Redaction
+
+- Worktree: `C:\Users\duoma\java\harness\.worktrees\task-11-auth-reports`
+- Branch: `codex/task-11-auth-reports`
+- Implementer subagent: `019f6480-0175-7431-a0bc-e12d80fcc2b7` (timed out after 60 seconds; controller continued from the observed RED state).
+- TDD RED:
+  - `tests/test_auth_reports.py::test_report_export_redacts_api_key_from_action_trace` could not collect because `harness.auth` was missing: `ModuleNotFoundError: No module named 'harness.auth'`.
+  - Added `tests/test_auth_reports.py::test_report_export_redacts_bearer_token_from_action_trace`; it failed because `secret-token-value` appeared in Markdown output.
+- TDD GREEN: added `CredentialService` with fake-keyring-compatible set/status/clear and `.env` fallback risk reporting without secret values; report export redacts API keys, sensitive assignments, bearer tokens, and sensitive-key fields.
+- Refactor: extracted supported `.env` credential key names into a class constant.
+- Validation: focused report redaction test passed; bearer-token redaction test passed; `tests/test_auth_reports.py` passed with 5 tests after refactor.
+- Review status: review skipped per user no-extra-check constraints.
