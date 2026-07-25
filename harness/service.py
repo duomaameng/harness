@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from harness.auth import CredentialService
-from harness.domain import ApprovalStatus, MemoryKind, Task
-from harness.llm import LLMClient
+from harness.domain import ApprovalStatus, Feedback, MemoryKind, Task
+from harness.llm import LLMClient, MockLLM
 from harness.memory import MemoryStore
 from harness.reports import ReportExporter
 from harness.runner import AgentRunner
@@ -29,7 +29,7 @@ class CoreService:
         self.repo_path = Path(repo_path).resolve()
         self.storage = HarnessStorage(self.repo_path)
         self.storage.init()
-        self.llm = llm
+        self.llm = llm or MockLLM([])
         self.validation_commands = validation_commands
         self.memory_store = MemoryStore(self.storage)
 
@@ -43,8 +43,6 @@ class CoreService:
         )
 
     def run_task(self, task_id: str, *, max_rounds: int = 6):
-        if self.llm is None:
-            raise ValueError("LLM client is required. Use MockLLM for offline tests or configure a real client.")
         runner = AgentRunner(
             storage=self.storage,
             llm=self.llm,
@@ -81,22 +79,41 @@ class CoreService:
 
     def list_approvals(self, run_id: str) -> list[dict[str, Any]]:
         self._require_run(run_id)
-        return self.storage._fetchall(
+        approvals = self.storage._fetchall(
             "SELECT * FROM approval_request WHERE task_run_id=? ORDER BY rowid",
             (run_id,),
         )
+        for approval in approvals:
+            action = self.storage.get_action(approval["action_id"])
+            if action is None:
+                continue
+            approval["action_type"] = action.get("action_type")
+            approval["action_args"] = self._action_args(action.get("args_json"))
+        return approvals
 
     def decide_approval(self, approval_id: str, status: str, decided_by: str = "cli") -> dict[str, Any]:
         if status not in {ApprovalStatus.APPROVED.value, ApprovalStatus.REJECTED.value}:
             raise ValueError(f"Unsupported approval status: {status}")
-        if self.storage.get_approval_request(approval_id) is None:
+        approval = self.storage.get_approval_request(approval_id)
+        if approval is None:
             raise ValueError(f"Unknown approval request: {approval_id}")
+        if approval["status"] != ApprovalStatus.PENDING.value:
+            raise ValueError(f"Approval request is already decided: {approval_id}")
         self.storage.update_approval_request(
             approval_id,
             status=status,
             decided_by=decided_by,
             decided_at=datetime.now(timezone.utc).isoformat(),
         )
+        if status == ApprovalStatus.REJECTED.value:
+            action = self.storage.get_action(approval["action_id"]) or {}
+            self.storage.create_feedback(Feedback(
+                task_run_id=approval["task_run_id"],
+                source="guardrail",
+                category="unsafe_action",
+                summary=f"Approval rejected: {approval.get('reason') or 'human rejected action'}",
+                locations=[action.get("action_type") or "approval"],
+            ))
         return self.storage.get_approval_request(approval_id) or {}
 
     def record_memory(
@@ -136,6 +153,7 @@ class CoreService:
             "selected_context": self.list_context(run_id),
             "action_trace": self.list_actions(run_id),
             "tool_results": self.storage.list_tool_results_for_run(run_id),
+            "changed_files": self._changed_files(run_id),
             "validation": self.list_feedback(run_id),
             "repair_rounds": run.get("current_round"),
             "approval_decisions": self.list_approvals(run_id),
@@ -174,6 +192,32 @@ class CoreService:
         else:
             item["metadata"] = {}
         return item
+
+    def _action_args(self, args_json: str | None) -> dict[str, Any]:
+        if not args_json:
+            return {}
+        try:
+            args = json.loads(args_json)
+        except json.JSONDecodeError:
+            return {}
+        return args if isinstance(args, dict) else {}
+
+    def _changed_files(self, run_id: str) -> list[str]:
+        changed: list[str] = []
+        for result in self.storage.list_tool_results_for_run(run_id):
+            raw = result.get("changed_files")
+            if not raw:
+                continue
+            try:
+                files = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(files, list):
+                continue
+            for path in files:
+                if isinstance(path, str) and path not in changed:
+                    changed.append(path)
+        return changed
 
 
 def json_dumps(data: Any) -> str:

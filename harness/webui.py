@@ -355,7 +355,7 @@ def _render_approvals(approvals: list[dict[str, Any]]) -> str:
         f"""<article class="item">
   <p class="item-title">{escape(str(approval.get("action_type") or "审批请求"))}</p>
   <p class="item-meta">{escape(str(approval.get("reason") or "WebUI 只能批准或拒绝，不能编辑动作内容。"))}</p>
-  <div class="excerpt">{escape(str(approval.get("command") or approval.get("payload") or ""))}</div>
+  <div class="excerpt">{escape(_compact(approval.get("action_args") or {}))}</div>
   <div class="button-row">
     <form method="post" action="/ui/approvals/{escape(str(approval.get("id")))}/approve">
       <button class="btn" type="submit">批准</button>

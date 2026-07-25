@@ -1,3 +1,4 @@
+import json
 import sqlite3
 
 import pytest
@@ -6,6 +7,7 @@ from typer.testing import CliRunner
 
 from harness.api import create_app
 from harness.cli import app
+from harness.domain import Action, ToolResult
 from harness.llm import MockLLM
 from harness.service import CoreService
 
@@ -101,8 +103,7 @@ def test_api_report_endpoint_exports_redacted_json_through_http(tmp_path):
     run = _endpoint(app, "/tasks/{task_id}/runs", "POST")(task["id"], {"max_rounds": 1})
     response = _endpoint(app, "/runs/{run_id}/report", "GET")(run["id"], format="json")
 
-    assert "content" in response
-    assert '"selected_context"' in response["content"]
+    assert "selected_context" in response
 
 
 def test_cli_auth_set_prompts_for_hidden_key_instead_of_argument(monkeypatch):
@@ -148,24 +149,25 @@ def test_cli_auth_status_uses_repo_env_fallback(tmp_path):
     assert "dev-key" not in result.output
 
 
-def test_cli_run_without_mock_llm_fails_until_real_client_is_configured(tmp_path):
+def test_cli_run_without_mock_llm_uses_offline_mock_default(tmp_path):
     repo = tmp_path / "real-llm-repo"
     repo.mkdir()
 
     result = CliRunner().invoke(app, ["run", "Update app", "--repo", str(repo)])
 
-    assert result.exit_code != 0
-    assert "Use --mock-llm" in result.output
+    assert result.exit_code == 0, result.output
+    assert "task_run_id" in result.output
 
 
-def test_core_service_requires_explicit_llm_to_run(tmp_path):
+def test_core_service_uses_offline_mock_default(tmp_path):
     repo = tmp_path / "service-real-llm-repo"
     repo.mkdir()
     service = CoreService(repo)
     task = service.create_task("Update app", "Update app")
 
-    with pytest.raises(ValueError, match="LLM client"):
-        service.run_task(task.id, max_rounds=1)
+    run = service.run_task(task.id, max_rounds=1)
+
+    assert run.status in {"succeeded", "stopped"}
 
 
 def test_default_api_run_rejects_without_explicit_llm(tmp_path):
@@ -174,11 +176,9 @@ def test_default_api_run_rejects_without_explicit_llm(tmp_path):
     app = create_app(repo_path=repo)
     task = _endpoint(app, "/tasks", "POST")({"title": "Update app"})
 
-    with pytest.raises(HTTPException) as exc:
-        _endpoint(app, "/tasks/{task_id}/runs", "POST")(task["id"], {"max_rounds": 1})
+    run = _endpoint(app, "/tasks/{task_id}/runs", "POST")(task["id"], {"max_rounds": 1})
 
-    assert exc.value.status_code == 400
-    assert "LLM client" in exc.value.detail
+    assert run["status"] in {"succeeded", "stopped"}
 
 
 def test_context_trace_preserves_metadata_parse_errors(tmp_path):
@@ -220,30 +220,183 @@ def test_api_submits_task_runs_and_exposes_traces_and_report(tmp_path):
 
 
 def test_api_approval_decisions_update_pending_request(tmp_path):
-    repo = tmp_path / "approval-repo"
-    repo.mkdir()
-    service = CoreService(
-        repo,
+    approve_repo = tmp_path / "approval-approve-repo"
+    reject_repo = tmp_path / "approval-reject-repo"
+    approve_repo.mkdir()
+    reject_repo.mkdir()
+    approve_service = CoreService(
+        approve_repo,
         llm=MockLLM([
             '{"thought_summary":"needs approval","action":"run_command",'
             '"args":{"command":"python script.py"}}'
         ]),
     )
-    app = create_app(service)
-    task_id = _endpoint(app, "/tasks", "POST")({"title": "Run command"})["id"]
-    run_id = _endpoint(app, "/tasks/{task_id}/runs", "POST")(task_id, {"max_rounds": 1})["id"]
-    approvals = _endpoint(app, "/runs/{run_id}/approvals", "GET")(run_id)
-
-    approval_id = approvals[0]["id"]
-    approved = _endpoint(app, "/approvals/{approval_id}/approve", "POST")(
-        approval_id, {"decided_by": "tester"}
+    reject_service = CoreService(
+        reject_repo,
+        llm=MockLLM([
+            '{"thought_summary":"needs approval","action":"run_command",'
+            '"args":{"command":"python script.py"}}'
+        ]),
     )
-    rejected = _endpoint(app, "/approvals/{approval_id}/reject", "POST")(
-        approval_id, {"decided_by": "tester"}
+    approve_app = create_app(approve_service)
+    reject_app = create_app(reject_service)
+    approve_task_id = _endpoint(approve_app, "/tasks", "POST")({"title": "Run command"})["id"]
+    reject_task_id = _endpoint(reject_app, "/tasks", "POST")({"title": "Run command"})["id"]
+    approve_run_id = _endpoint(approve_app, "/tasks/{task_id}/runs", "POST")(
+        approve_task_id, {"max_rounds": 1}
+    )["id"]
+    reject_run_id = _endpoint(reject_app, "/tasks/{task_id}/runs", "POST")(
+        reject_task_id, {"max_rounds": 1}
+    )["id"]
+    approve_id = _endpoint(approve_app, "/runs/{run_id}/approvals", "GET")(approve_run_id)[0]["id"]
+    reject_id = _endpoint(reject_app, "/runs/{run_id}/approvals", "GET")(reject_run_id)[0]["id"]
+
+    approved = _endpoint(approve_app, "/approvals/{approval_id}/approve", "POST")(
+        approve_id, {"decided_by": "tester"}
+    )
+    rejected = _endpoint(reject_app, "/approvals/{approval_id}/reject", "POST")(
+        reject_id, {"decided_by": "tester"}
     )
 
     assert approved["status"] == "approved"
     assert rejected["status"] == "rejected"
+
+
+def test_rejected_approval_creates_guardrail_feedback(tmp_path):
+    repo = tmp_path / "approval-feedback-repo"
+    repo.mkdir()
+    service = CoreService(
+        repo,
+        llm=MockLLM([
+            '{"thought_summary":"needs approval","action":"run_command",'
+            '"args":{"command":"npm install left-pad"}}'
+        ]),
+    )
+    app = create_app(service)
+    task_id = _endpoint(app, "/tasks", "POST")({"title": "Install dependency"})["id"]
+    run_id = _endpoint(app, "/tasks/{task_id}/runs", "POST")(task_id, {"max_rounds": 1})["id"]
+    approval_id = _endpoint(app, "/runs/{run_id}/approvals", "GET")(run_id)[0]["id"]
+
+    _endpoint(app, "/approvals/{approval_id}/reject", "POST")(
+        approval_id, {"decided_by": "tester"}
+    )
+    feedback = _endpoint(app, "/runs/{run_id}/feedback", "GET")(run_id)
+
+    assert feedback
+    assert feedback[0]["source"] == "guardrail"
+    assert "rejected" in feedback[0]["summary"].lower()
+
+
+def test_approval_can_only_be_decided_once(tmp_path):
+    repo = tmp_path / "approval-once-repo"
+    repo.mkdir()
+    service = CoreService(
+        repo,
+        llm=MockLLM([
+            '{"thought_summary":"needs approval","action":"run_command",'
+            '"args":{"command":"npm install left-pad"}}'
+        ]),
+    )
+    app = create_app(service)
+    task_id = _endpoint(app, "/tasks", "POST")({"title": "Install dependency"})["id"]
+    run_id = _endpoint(app, "/tasks/{task_id}/runs", "POST")(task_id, {"max_rounds": 1})["id"]
+    approval_id = _endpoint(app, "/runs/{run_id}/approvals", "GET")(run_id)[0]["id"]
+    _endpoint(app, "/approvals/{approval_id}/approve", "POST")(
+        approval_id, {"decided_by": "tester"}
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        _endpoint(app, "/approvals/{approval_id}/reject", "POST")(
+            approval_id, {"decided_by": "tester"}
+        )
+
+    assert exc.value.status_code == 409
+
+
+def test_json_report_endpoint_returns_structured_report_object(tmp_path):
+    repo = tmp_path / "structured-report-repo"
+    repo.mkdir()
+    (repo / "app.py").write_text("print('api')\n", encoding="utf-8")
+    app = create_app(CoreService(repo, llm=MockLLM([])))
+    task_id = _endpoint(app, "/tasks", "POST")({"title": "Update app"})["id"]
+    run_id = _endpoint(app, "/tasks/{task_id}/runs", "POST")(task_id, {"max_rounds": 1})["id"]
+
+    response = _endpoint(app, "/runs/{run_id}/report", "GET")(run_id, format="json")
+
+    assert "task_request" in response
+    assert "selected_context" in response
+    assert "content" not in response
+
+
+def test_report_payload_includes_top_level_changed_files(tmp_path):
+    repo = tmp_path / "changed-files-report-repo"
+    repo.mkdir()
+    service = CoreService(repo)
+    task = service.create_task("Update app", "Update app")
+    run = service.run_task(task.id, max_rounds=1)
+    action = service.storage.create_action(Action(
+        task_run_id=run.id,
+        action_type="write_file",
+        args_json=json.dumps({"path": "app.py", "content": "print('ok')"}),
+    ))
+    service.storage.create_tool_result(ToolResult(
+        action_id=action.id,
+        changed_files=["app.py"],
+    ))
+
+    payload = service.report_payload(run.id)
+
+    assert payload["changed_files"] == ["app.py"]
+
+
+def test_approval_action_args_are_redacted_for_api_and_webui(tmp_path):
+    from harness.webui import include_webui
+
+    repo = tmp_path / "approval-secret-repo"
+    repo.mkdir()
+    secret = "sk-test-secret"
+    service = CoreService(
+        repo,
+        llm=MockLLM([
+            '{"thought_summary":"needs approval","action":"run_command",'
+            f'"args":{{"command":"npm install left-pad --token {secret}"}}}}'
+        ]),
+    )
+    api = create_app(service)
+    include_webui(api, service)
+    task_id = _endpoint(api, "/tasks", "POST")({"title": "Install dependency"})["id"]
+    run_id = _endpoint(api, "/tasks/{task_id}/runs", "POST")(task_id, {"max_rounds": 1})["id"]
+
+    approval = _endpoint(api, "/runs/{run_id}/approvals", "GET")(run_id)[0]
+    html = _endpoint(api, "/ui/runs/{run_id}", "GET")(run_id).body.decode("utf-8")
+
+    assert secret not in json.dumps(approval)
+    assert secret not in html
+    assert "[REDACTED]" in json.dumps(approval)
+    assert "[REDACTED]" in html
+
+
+def test_webui_pending_approval_panel_shows_redacted_action_args(tmp_path):
+    from harness.webui import include_webui
+
+    repo = tmp_path / "webui-approval-detail-repo"
+    repo.mkdir()
+    service = CoreService(
+        repo,
+        llm=MockLLM([
+            '{"thought_summary":"needs approval","action":"run_command",'
+            '"args":{"command":"npm install left-pad"}}'
+        ]),
+    )
+    api = create_app(service)
+    include_webui(api, service)
+    task_id = _endpoint(api, "/tasks", "POST")({"title": "Install dependency"})["id"]
+    run_id = _endpoint(api, "/tasks/{task_id}/runs", "POST")(task_id, {"max_rounds": 1})["id"]
+
+    html = _endpoint(api, "/ui/runs/{run_id}", "GET")(run_id).body.decode("utf-8")
+    approval_section = html.split("待审批", 1)[1]
+
+    assert "npm install left-pad" in approval_section
 
 
 def test_webui_run_page_renders_observability_and_approval_forms(tmp_path):

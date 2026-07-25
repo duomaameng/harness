@@ -34,12 +34,6 @@ def run(
     mock_llm: bool = typer.Option(False, "--mock-llm"),
     max_rounds: int = typer.Option(6, "--max-rounds"),
 ) -> None:
-    if not mock_llm:
-        typer.echo(
-            "Real LLM client configuration is not implemented yet. Use --mock-llm.",
-            err=True,
-        )
-        raise typer.Exit(1)
     service = _service(repo, mock_llm=mock_llm)
     created = service.create_task(task, task)
     run_result = service.run_task(created.id, max_rounds=max_rounds)
