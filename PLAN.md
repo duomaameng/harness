@@ -410,6 +410,8 @@
 
 ### Task 12: Core Service, CLI, API, And WebUI Observability
 
+**Status:** Complete.
+
 **Parallel:** No.
 
 **Depends On:** Tasks 8, 9, 10, 11.

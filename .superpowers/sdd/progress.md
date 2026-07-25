@@ -8,3 +8,4 @@ Task 8: complete (tests/test_context_engine.py 1 passed; review skipped per user
 Task 10: complete (tests/test_runner.py 2 passed; review skipped per user no-extra-check constraints)
 Task 9: complete (tests/test_feedback.py 1 passed; review skipped per user no-extra-check constraints)
 Task 11: complete (tests/test_auth_reports.py 5 passed; review skipped per user no-extra-check constraints)
+Task 12: complete (tests/test_service_cli_api.py 14 passed; WebUI completed from design/webui-prototype.html; review skipped per user no-extra-check constraints)
