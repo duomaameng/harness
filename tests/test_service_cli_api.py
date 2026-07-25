@@ -376,6 +376,129 @@ def test_approval_action_args_are_redacted_for_api_and_webui(tmp_path):
     assert "[REDACTED]" in html
 
 
+def test_webui_root_renders_integrated_workbench_with_existing_runs(tmp_path):
+    repo = tmp_path / "webui-workbench-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    api = create_app(service)
+    task = service.create_task("Update docs", "Update README with startup notes")
+    run = service.run_task(task.id, max_rounds=1)
+
+    response = _endpoint(api, "/", "GET")()
+    html = response.body.decode("utf-8")
+
+    assert "Harness Workbench" in html
+    assert "新建任务" in html
+    assert "Update docs" in html
+    assert f"/ui/runs/{run.id}" in html
+    assert str(repo) in html
+
+
+def test_webui_create_and_run_endpoint_returns_detail_url(tmp_path):
+    repo = tmp_path / "webui-create-run-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    api = create_app(service)
+
+    result = _endpoint(api, "/ui/tasks/run", "POST")({
+        "title": "Run from workbench",
+        "description": "Create through WebUI form",
+        "max_rounds": 1,
+    })
+
+    assert result["task_id"]
+    assert result["run_id"]
+    assert result["detail_url"] == f"/ui/runs/{result['run_id']}"
+    assert service.get_status(result["run_id"])["task"]["title"] == "Run from workbench"
+
+
+def test_webui_task_endpoints_return_bad_request_for_invalid_input(tmp_path):
+    repo = tmp_path / "webui-invalid-input-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    api = create_app(service)
+
+    with pytest.raises(HTTPException) as missing_title:
+        _endpoint(api, "/ui/tasks", "POST")({"title": "   "})
+
+    with pytest.raises(HTTPException) as bad_rounds:
+        _endpoint(api, "/ui/tasks/run", "POST")({
+            "title": "Run from workbench",
+            "max_rounds": "bad",
+        })
+
+    assert missing_title.value.status_code == 400
+    assert bad_rounds.value.status_code == 400
+
+
+def test_webui_workbench_matches_design_prototype_structure(tmp_path):
+    repo = tmp_path / "prototype-workbench-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    api = create_app(service)
+    task = service.create_task("Prototype task", "Render the prototype structure")
+    run = service.run_task(task.id, max_rounds=1)
+
+    html = _endpoint(api, "/", "GET")().body.decode("utf-8")
+
+    assert 'class="dashboard-workbench"' in html
+    assert 'id="view-workbench"' in html
+    assert 'id="view-detail"' in html
+    assert 'class="repo-list"' in html
+    assert 'class="repo-group active"' in html
+    assert 'class="current-repo"' in html
+    assert "上下文感知编码框架" in html
+    assert "工作台" in html
+    assert "运行详情" in html
+    assert "当前仓库" in html
+    assert "创建并运行" in html
+    assert "查看运行详情" in html
+    assert f"/ui/runs/{run.id}" in html
+
+
+def test_webui_workbench_detail_nav_links_to_latest_run(tmp_path):
+    repo = tmp_path / "prototype-workbench-nav-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    api = create_app(service)
+    task = service.create_task("Nav target", "Latest run should drive detail navigation")
+    run = service.run_task(task.id, max_rounds=1)
+
+    html = _endpoint(api, "/", "GET")().body.decode("utf-8")
+
+    assert f'<a href="/ui/runs/{run.id}">运行详情</a>' in html
+
+
+def test_webui_run_detail_matches_design_prototype_structure(tmp_path):
+    repo = tmp_path / "prototype-detail-repo"
+    repo.mkdir()
+    service = CoreService(
+        repo,
+        llm=MockLLM([
+            '{"thought_summary":"needs approval","action":"run_command",'
+            '"args":{"command":"python -m pytest tests/test_calculator.py -q"}}'
+        ]),
+    )
+    api = create_app(service)
+    task_id = _endpoint(api, "/tasks", "POST")({"title": "Prototype detail"})["id"]
+    run_id = _endpoint(api, "/tasks/{task_id}/runs", "POST")(task_id, {"max_rounds": 1})["id"]
+
+    html = _endpoint(api, "/ui/runs/{run_id}", "GET")(run_id).body.decode("utf-8")
+
+    assert 'class="run-hero"' in html
+    assert 'class="detail-layout"' in html
+    assert 'class="timeline"' in html
+    assert 'class="approval-box"' in html
+    assert 'class="context-list"' in html
+    assert "返回工作台" in html
+    assert "导出 MD" in html
+    assert "导出 JSON" in html
+    assert "时间线" in html
+    assert "待审批" in html
+    assert "已选上下文" in html
+    assert "python -m pytest tests/test_calculator.py -q" in html
+
+
 def test_webui_pending_approval_panel_shows_redacted_action_args(tmp_path):
     from harness.webui import include_webui
 

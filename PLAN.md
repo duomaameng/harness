@@ -431,6 +431,8 @@
 - CLI commands include `init`, `run`, `status`, `auth set/status/clear`, `memory`, and `export`.
 - API endpoints submit tasks, query runs, read context/action/feedback traces, approve/reject pending approvals, and export reports.
 - WebUI renders read-only observability pages plus approval decision forms; it does not implement agent logic.
+- WebUI root `/` renders the workbench from the design prototype for task submission, create-and-run, run history, and detail navigation through Core Service.
+- WebUI preserves the prototype's single-repository layout and detail evidence chain structure; multi-repository add/switch is deferred until a backend repository registry exists.
 
 **First Failing Test:**
 - Write `tests/test_service_cli_api.py::test_cli_run_with_mock_llm_creates_task_run_and_context_trace`.
