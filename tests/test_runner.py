@@ -98,6 +98,29 @@ def test_runner_model_input_includes_profile_context_and_prior_actions(tmp_path)
     assert "prior_actions" in prompt
 
 
+def test_runner_system_prompt_names_exact_action_schema(tmp_path):
+    repo = tmp_path / "schema-prompt-repo"
+    repo.mkdir()
+    storage = HarnessStorage(repo)
+    storage.init()
+    task = storage.create_task(Task(
+        title="Summarize dependencies",
+        description="Read pyproject.toml and summarize dependencies",
+        repo_path=str(repo),
+    ))
+    llm = MockLLM(["not json"])
+
+    AgentRunner(storage=storage, llm=llm, repo_root=repo).run(task.id, max_rounds=1)
+
+    system_prompt = llm.requests[0][0]["content"]
+    assert "thought_summary" in system_prompt
+    assert '"action"' in system_prompt
+    assert '"args"' in system_prompt
+    assert "read_file" in system_prompt
+    assert "finish" in system_prompt
+    assert "Do not invent action names" in system_prompt
+
+
 def test_runner_creates_approval_request_for_approval_actions(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -150,8 +173,8 @@ def test_runner_runs_validation_after_tool_execution_and_records_feedback(tmp_pa
     run = AgentRunner(
         storage=storage,
         llm=MockLLM([
-            '{"thought_summary":"read file","action":"read_file",'
-            '"args":{"path":"README.md"}}'
+            '{"thought_summary":"write file","action":"write_file",'
+            '"args":{"path":"README.md","content":"hello updated"}}'
         ]),
         repo_root=repo,
         validation_commands=["definitely-not-a-real-command"],
@@ -191,7 +214,7 @@ def test_runner_stops_early_on_repeated_guardrail_failures(tmp_path):
     assert run.stop_reason == "repeated_failure"
 
 
-def test_runner_finish_action_runs_final_validation_before_success(tmp_path):
+def test_runner_finish_after_file_change_runs_final_validation_before_success(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     storage = HarnessStorage(repo)
@@ -207,17 +230,53 @@ def test_runner_finish_action_runs_final_validation_before_success(tmp_path):
     run = AgentRunner(
         storage=storage,
         llm=MockLLM([
+            '{"thought_summary":"write file","action":"write_file",'
+            '"args":{"path":"notes.txt","content":"changed"}}',
             '{"thought_summary":"done","action":"finish","args":{"summary":"done"}}'
         ]),
         repo_root=repo,
         validation_commands=["definitely-not-a-real-command"],
-    ).run(task.id, max_rounds=1)
+    ).run(task.id, max_rounds=2)
 
     feedback = storage.list_feedback_for_run(run.id)
-    assert len(feedback) == 1
+    assert len(feedback) == 2
     assert "could not start" in feedback[0]["summary"]
     assert run.status == TaskStatus.STOPPED.value
     assert run.stop_reason == "max_repair_rounds"
+
+
+def test_runner_read_only_summary_succeeds_without_validation_commands(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "pyproject.toml").write_text(
+        "[project]\nname = \"sample\"\ndependencies = [\"fastapi\"]\n",
+        encoding="utf-8",
+    )
+    storage = HarnessStorage(repo)
+    storage.init()
+    task = storage.create_task(
+        Task(
+            title="Summarize dependencies",
+            description="Read pyproject.toml and summarize dependencies without modifying files",
+            repo_path=str(repo),
+        )
+    )
+
+    run = AgentRunner(
+        storage=storage,
+        llm=MockLLM([
+            '{"thought_summary":"read dependencies","action":"read_file",'
+            '"args":{"path":"pyproject.toml"}}',
+            '{"thought_summary":"summarize dependencies","action":"finish",'
+            '"args":{"summary":"This project depends on fastapi."}}',
+        ]),
+        repo_root=repo,
+    ).run(task.id, max_rounds=2)
+
+    feedback = storage.list_feedback_for_run(run.id)
+    assert feedback == []
+    assert run.status == TaskStatus.SUCCEEDED.value
+    assert run.stop_reason == "model_finished"
 
 
 def test_runner_successful_validation_records_passed_feedback(tmp_path):
@@ -237,8 +296,8 @@ def test_runner_successful_validation_records_passed_feedback(tmp_path):
     run = AgentRunner(
         storage=storage,
         llm=MockLLM([
-            '{"thought_summary":"read file","action":"read_file",'
-            '"args":{"path":"README.md"}}',
+            '{"thought_summary":"write file","action":"write_file",'
+            '"args":{"path":"README.md","content":"hello updated"}}',
             '{"thought_summary":"done","action":"finish","args":{"summary":"done"}}',
         ]),
         repo_root=repo,
@@ -363,14 +422,14 @@ def test_runner_validation_success_uses_structured_result_not_summary_text(tmp_p
     storage.init()
     task = storage.create_task(
         Task(
-            title="Read and finish",
-            description="Read README then finish",
+            title="Write and finish",
+            description="Write README then finish",
             repo_path=str(repo),
         )
     )
     llm = MockLLM([
-        '{"thought_summary":"read file","action":"read_file",'
-        '"args":{"path":"README.md"}}',
+        '{"thought_summary":"write file","action":"write_file",'
+        '"args":{"path":"README.md","content":"hello updated"}}',
         '{"thought_summary":"done","action":"finish","args":{"summary":"done"}}',
     ])
     runner = AgentRunner(storage=storage, llm=llm, repo_root=repo)
@@ -384,7 +443,7 @@ def test_runner_validation_success_uses_structured_result_not_summary_text(tmp_p
     assert {item["passed"] for item in feedback} == {1}
 
 
-def test_runner_finish_without_validation_commands_does_not_succeed(tmp_path):
+def test_runner_finish_after_file_change_without_validation_commands_does_not_succeed(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     storage = HarnessStorage(repo)
@@ -392,7 +451,7 @@ def test_runner_finish_without_validation_commands_does_not_succeed(tmp_path):
     task = storage.create_task(
         Task(
             title="Finish without validation",
-            description="Finish should require validation evidence",
+            description="Finish should require validation evidence after file changes",
             repo_path=str(repo),
         )
     )
@@ -400,14 +459,16 @@ def test_runner_finish_without_validation_commands_does_not_succeed(tmp_path):
     run = AgentRunner(
         storage=storage,
         llm=MockLLM([
+            '{"thought_summary":"write file","action":"write_file",'
+            '"args":{"path":"notes.txt","content":"changed"}}',
             '{"thought_summary":"done","action":"finish","args":{"summary":"done"}}'
         ]),
         repo_root=repo,
-    ).run(task.id, max_rounds=1)
+    ).run(task.id, max_rounds=2)
 
     feedback = storage.list_feedback_for_run(run.id)
     assert run.status == TaskStatus.STOPPED.value
-    assert run.stop_reason == "max_repair_rounds"
+    assert run.stop_reason in {"max_repair_rounds", "repeated_failure"}
     assert feedback
     assert feedback[0]["source"] == FeedbackSource.BUILD.value
     assert "No validation commands" in feedback[0]["summary"]
@@ -453,14 +514,14 @@ def test_runner_sends_structured_feedback_to_next_repair_round(tmp_path):
     storage.init()
     task = storage.create_task(
         Task(
-            title="Read then repair",
-            description="Read README and repair validation failure",
+            title="Write then repair",
+            description="Write README and repair validation failure",
             repo_path=str(repo),
         )
     )
     llm = MockLLM([
-        '{"thought_summary":"read file","action":"read_file",'
-        '"args":{"path":"README.md"}}',
+        '{"thought_summary":"write file","action":"write_file",'
+        '"args":{"path":"README.md","content":"hello updated"}}',
         "not json",
     ])
 

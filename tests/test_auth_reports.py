@@ -184,6 +184,45 @@ def test_credentials_report_export_style_env_fallback_without_secret(tmp_path):
     assert "sk-export-secret" not in json.dumps(status)
 
 
+def test_credentials_get_prefers_keyring_secret_over_env_fallback(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("HARNESS_API_KEY=sk-env-secret\n", encoding="utf-8")
+    keyring = FakeKeyring()
+    credentials = CredentialService(keyring_backend=keyring, env_file=env_file)
+    credentials.set("sk-keyring-secret")
+
+    assert credentials.get() == "sk-keyring-secret"
+
+
+def test_credentials_get_reads_deployment_environment_secret(monkeypatch, tmp_path):
+    env_file = tmp_path / ".env"
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "deployment-secret")
+
+    assert CredentialService(keyring_backend=FakeKeyring(), env_file=env_file).get() == "deployment-secret"
+
+
+def test_credentials_get_prefers_deployment_secret_over_env_file(monkeypatch, tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("DEEPSEEK_API_KEY=file-secret\n", encoding="utf-8")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "deployment-secret")
+
+    assert CredentialService(keyring_backend=FakeKeyring(), env_file=env_file).get() == "deployment-secret"
+
+
+def test_credentials_get_reads_export_style_openai_key_from_env(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text('export OPENAI_API_KEY="sk-export-secret"\n', encoding="utf-8")
+
+    assert CredentialService(keyring_backend=FakeKeyring(), env_file=env_file).get() == "sk-export-secret"
+
+
+def test_credentials_get_reads_deepseek_key_from_env(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("DEEPSEEK_API_KEY=deepseek-secret\n", encoding="utf-8")
+
+    assert CredentialService(keyring_backend=FakeKeyring(), env_file=env_file).get() == "deepseek-secret"
+
+
 def test_report_export_preserves_run_sections():
     report = {
         "task_request": "Add endpoint",

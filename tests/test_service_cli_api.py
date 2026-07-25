@@ -8,7 +8,7 @@ from typer.testing import CliRunner
 from harness.api import create_app
 from harness.cli import app
 from harness.domain import Action, ToolResult
-from harness.llm import MockLLM
+from harness.llm import MockLLM, OpenAICompatibleClient
 from harness.service import CoreService
 
 
@@ -170,6 +170,38 @@ def test_core_service_uses_offline_mock_default(tmp_path):
     assert run.status in {"succeeded", "stopped"}
 
 
+def test_core_service_uses_openai_compatible_client_when_credentials_are_configured(tmp_path, monkeypatch):
+    repo = tmp_path / "configured-real-llm-repo"
+    repo.mkdir()
+    (repo / ".env").write_text("HARNESS_API_KEY=sk-dotenv-secret\n", encoding="utf-8")
+    monkeypatch.setenv("HARNESS_LLM_BASE_URL", "https://api.example.test/v1")
+    monkeypatch.setenv("HARNESS_LLM_MODEL", "example-model")
+
+    service = CoreService(repo)
+
+    assert isinstance(service.llm, OpenAICompatibleClient)
+    assert service.llm.base_url == "https://api.example.test/v1"
+    assert service.llm.model == "example-model"
+    assert service.llm.api_key == "sk-dotenv-secret"
+
+
+def test_core_service_defaults_configured_provider_to_deepseek_chat_model(tmp_path, monkeypatch):
+    repo = tmp_path / "default-real-llm-repo"
+    repo.mkdir()
+    (repo / ".env").write_text("DEEPSEEK_API_KEY=deepseek-secret\n", encoding="utf-8")
+    monkeypatch.delenv("HARNESS_LLM_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("HARNESS_LLM_MODEL", raising=False)
+    monkeypatch.delenv("OPENAI_MODEL", raising=False)
+
+    service = CoreService(repo)
+
+    assert isinstance(service.llm, OpenAICompatibleClient)
+    assert service.llm.base_url == "https://api.deepseek.com"
+    assert service.llm.model == "deepseek-v4-pro"
+    assert service.llm.api_key == "deepseek-secret"
+
+
 def test_default_api_run_rejects_without_explicit_llm(tmp_path):
     repo = tmp_path / "api-real-llm-repo"
     repo.mkdir()
@@ -215,7 +247,7 @@ def test_api_submits_task_runs_and_exposes_traces_and_report(tmp_path):
     assert _endpoint(app, "/runs/{run_id}", "GET")(run_id)["run"]["id"] == run_id
     assert _endpoint(app, "/runs/{run_id}/context", "GET")(run_id)
     assert _endpoint(app, "/runs/{run_id}/actions", "GET")(run_id)
-    assert _endpoint(app, "/runs/{run_id}/feedback", "GET")(run_id)
+    assert isinstance(_endpoint(app, "/runs/{run_id}/feedback", "GET")(run_id), list)
     assert "content" in _endpoint(app, "/runs/{run_id}/report", "GET")(run_id)
 
 
@@ -497,6 +529,49 @@ def test_webui_run_detail_matches_design_prototype_structure(tmp_path):
     assert "待审批" in html
     assert "已选上下文" in html
     assert "python -m pytest tests/test_calculator.py -q" in html
+
+
+def test_webui_run_detail_shows_human_readable_finish_result(tmp_path):
+    repo = tmp_path / "webui-readable-result-repo"
+    repo.mkdir()
+    service = CoreService(
+        repo,
+        llm=MockLLM([
+            '{"thought_summary":"summarized dependencies","action":"finish",'
+            '"args":{"summary":"Project dependencies are Typer, FastAPI, Uvicorn, and keyring."}}'
+        ]),
+    )
+    api = create_app(service)
+    task_id = _endpoint(api, "/tasks", "POST")({"title": "Summarize dependencies"})["id"]
+    run_id = _endpoint(api, "/tasks/{task_id}/runs", "POST")(task_id, {"max_rounds": 1})["id"]
+
+    html = _endpoint(api, "/ui/runs/{run_id}", "GET")(run_id).body.decode("utf-8")
+
+    assert 'class="result-card' in html
+    assert "运行结果" in html
+    assert "Project dependencies are Typer, FastAPI, Uvicorn, and keyring." in html
+
+
+def test_webui_run_detail_explains_invalid_model_action_as_no_usable_result(tmp_path):
+    repo = tmp_path / "webui-invalid-result-repo"
+    repo.mkdir()
+    service = CoreService(
+        repo,
+        llm=MockLLM([
+            '{"action":"read_and_summarize","file":"pyproject.toml",'
+            '"description":"Summarize project dependencies","modify":false}'
+        ]),
+    )
+    api = create_app(service)
+    task_id = _endpoint(api, "/tasks", "POST")({"title": "Summarize dependencies"})["id"]
+    run_id = _endpoint(api, "/tasks/{task_id}/runs", "POST")(task_id, {"max_rounds": 1})["id"]
+
+    html = _endpoint(api, "/ui/runs/{run_id}", "GET")(run_id).body.decode("utf-8")
+
+    assert 'class="result-card' in html
+    assert "本次没有生成可用结果" in html
+    assert "模型返回的动作格式不符合要求" in html
+    assert "Missing or invalid required field: thought_summary." in html
 
 
 def test_webui_pending_approval_panel_shows_redacted_action_args(tmp_path):

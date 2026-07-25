@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+import json
+from typing import Any, Callable, Protocol
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen as default_urlopen
+
+from harness.storage import _redact
 
 
 class LLMClient(Protocol):
@@ -27,6 +32,10 @@ class MockLLM:
         return self._outputs.pop(0)
 
 
+class LLMClientError(RuntimeError):
+    """Raised when a real model provider cannot return usable output."""
+
+
 @dataclass(frozen=True)
 class OpenAICompatibleClient:
     """Configuration shell for an OpenAI-compatible chat-completions client."""
@@ -34,7 +43,62 @@ class OpenAICompatibleClient:
     base_url: str
     model: str
     api_key: str
+    timeout: float = 60.0
+    urlopen: Callable[..., Any] = default_urlopen
 
     def complete(self, messages: list[dict[str, str]]) -> str:
-        del messages
-        raise NotImplementedError("Network LLM calls are not used by offline tests.")
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": 0,
+            "response_format": {"type": "json_object"},
+        }
+        request = Request(
+            self._chat_completions_url(),
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with self.urlopen(request, timeout=self.timeout) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            raise LLMClientError(self._http_error_message(exc)) from exc
+        except (URLError, TimeoutError, OSError) as exc:
+            raise LLMClientError(str(_redact(f"Model request failed: {exc}"))) from exc
+        except json.JSONDecodeError as exc:
+            raise LLMClientError("Model response was not valid JSON.") from exc
+
+        try:
+            content = body["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise LLMClientError("Model response did not include message content.") from exc
+        if not isinstance(content, str) or not content.strip():
+            raise LLMClientError("Model response content was empty.")
+        return content
+
+    def _chat_completions_url(self) -> str:
+        return f"{self.base_url.rstrip('/')}/chat/completions"
+
+    def _http_error_message(self, exc: HTTPError) -> str:
+        detail = ""
+        try:
+            raw = exc.read().decode("utf-8")
+        except Exception:
+            raw = ""
+        if raw:
+            try:
+                body = json.loads(raw)
+            except json.JSONDecodeError:
+                detail = raw
+            else:
+                error = body.get("error") if isinstance(body, dict) else None
+                if isinstance(error, dict):
+                    detail = str(error.get("message") or "")
+        message = f"Model request failed with HTTP {exc.code} {exc.reason}"
+        if detail:
+            message = f"{message}: {detail}"
+        return str(_redact(message))

@@ -29,6 +29,30 @@ from harness.storage import HarnessStorage, _redact
 from harness.tools import ToolDispatcher
 
 
+_ACTION_SYSTEM_PROMPT = """Return exactly one JSON object for the next harness action.
+The JSON object must have exactly these top-level fields:
+{
+  "thought_summary": "short reason for the next action",
+  "action": "one allowed action name",
+  "args": {}
+}
+
+Allowed action names and args:
+- read_file: {"path": "relative/path"}
+- write_file: {"path": "relative/path", "content": "complete file content"}
+- search: {"query": "text or regex", "path": "optional relative directory"}
+- list_files: {"path": "optional relative directory"}
+- run_command: {"command": "single command without shell chaining"}
+- show_diff: {"path": "optional relative path"}
+- record_memory: {"kind": "task_summary", "content": "memory content"}
+- finish: {"summary": "final human-readable result"}
+
+Do not invent action names. For example, use read_file then finish; never use
+read_and_summarize, summarize_file, inspect, answer, or edit. Put all action
+parameters inside args. The response must be valid JSON only, with no markdown
+or explanatory text outside the JSON object."""
+
+
 class AgentRunner:
     """Run model actions through parser, guardrails, tools, and feedback."""
 
@@ -61,6 +85,7 @@ class AgentRunner:
         ))
         prior_feedback: list[Feedback] = []
         prior_actions: list[dict] = []
+        changed_files: set[str] = set()
         profile = TaskProfiler().profile(task["description"] or task["title"])
 
         for round_index in range(max_rounds):
@@ -92,13 +117,14 @@ class AgentRunner:
                 continue
 
             if action.action_type == ActionType.FINISH.value:
-                validation_feedback = self._run_validation(run.id, round_index)
                 prior_actions.append(self._action_trace(action))
-                prior_feedback.extend(validation_feedback)
-                if validation_feedback:
-                    if self.feedback_engine.should_stop_early(prior_feedback):
-                        return self._finish(run, TaskStatus.STOPPED.value, "repeated_failure")
-                    continue
+                if changed_files:
+                    validation_feedback = self._run_validation(run.id, round_index)
+                    prior_feedback.extend(validation_feedback)
+                    if validation_feedback:
+                        if self.feedback_engine.should_stop_early(prior_feedback):
+                            return self._finish(run, TaskStatus.STOPPED.value, "repeated_failure")
+                        continue
                 return self._finish(run, TaskStatus.SUCCEEDED.value, "model_finished")
 
             guardrail = self.guardrail.evaluate(action)
@@ -135,12 +161,14 @@ class AgentRunner:
                 prior_actions.append(self._action_trace(action))
                 return self._wait_for_approval(run, "approval_required")
 
-            self.dispatcher.dispatch(action, repo_root=self.repo_root)
-            validation_feedback = self._run_validation(run.id, round_index)
+            result = self.dispatcher.dispatch(action, repo_root=self.repo_root)
+            changed_files.update(result.changed_files or [])
             prior_actions.append(self._action_trace(action))
-            prior_feedback.extend(validation_feedback)
-            if self.feedback_engine.should_stop_early(prior_feedback):
-                return self._finish(run, TaskStatus.STOPPED.value, "repeated_failure")
+            if self._should_validate_after(action):
+                validation_feedback = self._run_validation(run.id, round_index)
+                prior_feedback.extend(validation_feedback)
+                if self.feedback_engine.should_stop_early(prior_feedback):
+                    return self._finish(run, TaskStatus.STOPPED.value, "repeated_failure")
 
         return self._finish(run, TaskStatus.STOPPED.value, "max_repair_rounds")
 
@@ -160,7 +188,7 @@ class AgentRunner:
             "feedback": [self._feedback_trace(item) for item in feedback],
         }
         return [
-            {"role": "system", "content": "Return one structured JSON harness action."},
+            {"role": "system", "content": _ACTION_SYSTEM_PROMPT},
             {"role": "user", "content": json.dumps(content, ensure_ascii=False)},
         ]
 
@@ -220,6 +248,12 @@ class AgentRunner:
 
     def _validation_passed(self, feedback: Feedback) -> bool:
         return bool(getattr(feedback, "passed", False))
+
+    def _should_validate_after(self, action) -> bool:
+        return action.action_type in {
+            ActionType.WRITE_FILE.value,
+            ActionType.RUN_COMMAND.value,
+        }
 
     def _action_trace(self, action) -> dict[str, object]:
         try:

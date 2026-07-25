@@ -271,6 +271,7 @@ def _render_run_detail(core: CoreService, run_id: str) -> str:
           </div>
         </div>
         <div class="panel-body">
+          {_render_result(run, actions, feedback)}
           <div class="timeline">
             {_render_timeline(context_packages, actions, feedback, pending)}
           </div>
@@ -350,6 +351,69 @@ def _render_timeline(
         events.append(_event("good", "生成反馈", str(item.get("summary") or item.get("category") or "feedback")))
     events.append(_event("good", "报告已导出", "Markdown 和 JSON 报告可用；敏感内容由存储和报告层脱敏。"))
     return "".join(events)
+
+
+def _render_result(
+    run: dict[str, Any],
+    actions: list[dict[str, Any]],
+    feedback: list[dict[str, Any]],
+) -> str:
+    finish_summary = _finish_summary(actions)
+    if finish_summary:
+        return f"""<section class="result-card good" aria-labelledby="result-title">
+  <p class="eyebrow">运行结果</p>
+  <h3 id="result-title">模型已给出结果</h3>
+  <p>{escape(finish_summary)}</p>
+</section>"""
+
+    invalid_feedback = next(
+        (
+            item for item in feedback
+            if item.get("source") == "schema_validation"
+            or item.get("category") == "invalid_action"
+        ),
+        None,
+    )
+    if invalid_feedback:
+        summary = str(invalid_feedback.get("summary") or "模型返回的动作格式不符合要求。")
+        return f"""<section class="result-card warn" aria-labelledby="result-title">
+  <p class="eyebrow">运行结果</p>
+  <h3 id="result-title">本次没有生成可用结果</h3>
+  <p>模型返回的动作格式不符合要求，Harness 没有执行这个动作。</p>
+  <p class="item-meta">{escape(summary)}</p>
+  <p class="item-meta">你可以把轮次调高后重试，或让任务描述更明确，例如“先读取 pyproject.toml，再用 finish 返回依赖总结”。</p>
+</section>"""
+
+    status = str(run.get("status") or "unknown")
+    stop_reason = str(run.get("stop_reason") or "暂无")
+    return f"""<section class="result-card" aria-labelledby="result-title">
+  <p class="eyebrow">运行结果</p>
+  <h3 id="result-title">还没有最终结果</h3>
+  <p>当前状态：{escape(status)}；原因：{escape(stop_reason)}。</p>
+  <p class="item-meta">下面的时间线和动作轨迹是调试信息，最终总结会优先显示在这里。</p>
+</section>"""
+
+
+def _finish_summary(actions: list[dict[str, Any]]) -> str | None:
+    for action in reversed(actions):
+        if action.get("action_type") != "finish":
+            continue
+        args = _action_args(action)
+        summary = args.get("summary")
+        if isinstance(summary, str) and summary.strip():
+            return summary.strip()
+    return None
+
+
+def _action_args(action: dict[str, Any]) -> dict[str, Any]:
+    raw = action.get("args_json")
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(str(raw))
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def _event(css: str, title: str, excerpt: str) -> str:
@@ -533,6 +597,11 @@ def _style() -> str:
     .stat strong { display: block; margin-top: 4px; font-size: 18px; }
     .detail-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, .65fr); gap: 18px; margin-top: 18px; align-items: start; }
     .timeline { position: relative; display: grid; gap: 14px; margin-bottom: 18px; }
+    .result-card { margin-bottom: 18px; padding: 18px; border: 1px solid var(--line); border-left: 5px solid var(--ink); border-radius: 8px; background: #fbfaf4; }
+    .result-card.good { border-left-color: var(--green); background: var(--green-bg); }
+    .result-card.warn { border-left-color: var(--amber); background: var(--amber-bg); }
+    .result-card h3 { margin: 0 0 8px; font-size: 24px; }
+    .result-card p:last-child { margin-bottom: 0; }
     .event { border-left: 4px solid var(--line); padding-left: 14px; }
     .event.good { border-color: var(--green); }
     .event.warn { border-color: var(--amber); }

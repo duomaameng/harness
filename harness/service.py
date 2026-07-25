@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from harness.auth import CredentialService
 from harness.domain import ApprovalStatus, Feedback, MemoryKind, Task
-from harness.llm import LLMClient, MockLLM
+from harness.llm import LLMClient, MockLLM, OpenAICompatibleClient
 from harness.memory import MemoryStore
 from harness.reports import ReportExporter
 from harness.runner import AgentRunner
@@ -29,7 +30,7 @@ class CoreService:
         self.repo_path = Path(repo_path).resolve()
         self.storage = HarnessStorage(self.repo_path)
         self.storage.init()
-        self.llm = llm or MockLLM([])
+        self.llm = llm or self._configured_llm() or MockLLM([])
         self.validation_commands = validation_commands
         self.memory_store = MemoryStore(self.storage)
 
@@ -184,6 +185,22 @@ class CoreService:
 
     def credential_service(self) -> CredentialService:
         return CredentialService(env_file=self.repo_path / ".env")
+
+    def _configured_llm(self) -> LLMClient | None:
+        api_key = self.credential_service().get()
+        if not api_key:
+            return None
+        return OpenAICompatibleClient(
+            base_url=os.environ.get("HARNESS_LLM_BASE_URL")
+            or os.environ.get("DEEPSEEK_BASE_URL")
+            or os.environ.get("OPENAI_BASE_URL")
+            or "https://api.deepseek.com",
+            model=os.environ.get("HARNESS_LLM_MODEL")
+            or os.environ.get("DEEPSEEK_MODEL")
+            or os.environ.get("OPENAI_MODEL")
+            or "deepseek-v4-pro",
+            api_key=api_key,
+        )
 
     def _require_run(self, run_id: str) -> dict[str, Any]:
         run = self.storage.get_task_run(run_id)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +10,7 @@ from typing import Any
 class CredentialService:
     """Keyring-first API key storage with a plaintext `.env` fallback warning."""
 
-    ENV_KEY_NAMES = {"HARNESS_API_KEY", "OPENAI_API_KEY"}
+    ENV_KEY_NAMES = {"HARNESS_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY"}
 
     def __init__(
         self,
@@ -36,6 +37,19 @@ class CredentialService:
             raise RuntimeError("keyring backend is unavailable")
         self.keyring.set_password(self.service_name, self.username, api_key)
 
+    def get(self) -> str | None:
+        if self.keyring is not None:
+            try:
+                secret = self.keyring.get_password(self.service_name, self.username)
+            except Exception:
+                secret = None
+            if secret:
+                return secret
+        secret = self._process_env_key()
+        if secret:
+            return secret
+        return self._env_key()
+
     def clear(self) -> bool:
         if self.keyring is None:
             return False
@@ -53,6 +67,8 @@ class CredentialService:
                 if self.keyring.get_password(self.service_name, self.username):
                     return self._status(True, "keyring", None)
             except Exception:
+                if self._process_env_key():
+                    return self._status(True, "environment", None)
                 if self._env_has_key():
                     return self._status(
                         True,
@@ -60,6 +76,9 @@ class CredentialService:
                         "Plaintext development fallback; keyring backend unavailable.",
                     )
                 return self._status(False, "keyring", "Keyring backend unavailable.")
+
+        if self._process_env_key():
+            return self._status(True, "environment", None)
 
         if self._env_has_key():
             return self._status(
@@ -79,8 +98,18 @@ class CredentialService:
         }
 
     def _env_has_key(self) -> bool:
+        return self._env_key() is not None
+
+    def _process_env_key(self) -> str | None:
+        for name in self.ENV_KEY_NAMES:
+            value = os.environ.get(name)
+            if value:
+                return value
+        return None
+
+    def _env_key(self) -> str | None:
         if not self.env_file.exists():
-            return False
+            return None
         for line in self.env_file.read_text(encoding="utf-8").splitlines():
             stripped = line.strip()
             if not stripped or stripped.startswith("#") or "=" not in stripped:
@@ -89,5 +118,5 @@ class CredentialService:
             name = name.strip().removeprefix("export ").strip()
             value = value.strip().strip("\"'")
             if name in self.ENV_KEY_NAMES and value:
-                return True
-        return False
+                return value
+        return None
