@@ -53,6 +53,12 @@ class CredentialService:
                 if self.keyring.get_password(self.service_name, self.username):
                     return self._status(True, "keyring", None)
             except Exception:
+                if self._env_has_key():
+                    return self._status(
+                        True,
+                        ".env",
+                        "Plaintext development fallback; keyring backend unavailable.",
+                    )
                 return self._status(False, "keyring", "Keyring backend unavailable.")
 
         if self._env_has_key():

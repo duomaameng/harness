@@ -144,6 +144,18 @@ def test_credentials_status_reports_keyring_backend_errors():
     assert "C:/Users/secret-store" not in status["risk"]
 
 
+def test_credentials_status_uses_env_fallback_when_keyring_backend_errors(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("HARNESS_API_KEY=sk-dotenv-secret\n", encoding="utf-8")
+
+    status = CredentialService(keyring_backend=BrokenKeyring(), env_file=env_file).status()
+
+    assert status["configured"] is True
+    assert status["source"] == ".env"
+    assert "plaintext" in status["risk"].lower()
+    assert "sk-dotenv-secret" not in json.dumps(status)
+
+
 def test_credentials_clear_handles_keyring_backend_errors():
     assert CredentialService(keyring_backend=BrokenKeyring()).clear() is False
 

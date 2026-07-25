@@ -1,0 +1,1353 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>上下文感知 Harness WebUI 原型</title>
+  <style>
+    :root {
+      --ink: #16201d;
+      --muted: #5e6a65;
+      --faint: #87918d;
+      --paper: #f7f5ef;
+      --panel: #fffdf7;
+      --line: #d8d3c5;
+      --line-strong: #bbb29f;
+      --steel: #31445b;
+      --steel-2: #e8eef2;
+      --green: #286b4a;
+      --green-bg: #dfeee5;
+      --amber: #a86612;
+      --amber-bg: #f5e7ca;
+      --red: #9f342f;
+      --red-bg: #f1d7d4;
+      --cyan: #1d7181;
+      --cyan-bg: #d9eef1;
+      --shadow: 0 18px 50px rgba(22, 32, 29, 0.12);
+      --mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+      --sans: "Bahnschrift", "Aptos", "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(90deg, rgba(22, 32, 29, 0.035) 1px, transparent 1px) 0 0 / 32px 32px,
+        linear-gradient(rgba(22, 32, 29, 0.03) 1px, transparent 1px) 0 0 / 32px 32px,
+        var(--paper);
+      font-family: var(--sans);
+      line-height: 1.45;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    button,
+    input,
+    textarea {
+      font: inherit;
+    }
+
+    .shell {
+      min-height: 100vh;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 18px;
+      align-items: center;
+      padding: 14px 28px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(247, 245, 239, 0.92);
+      backdrop-filter: blur(16px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 38px;
+      height: 38px;
+      place-items: center;
+      color: var(--panel);
+      background: var(--ink);
+      border-radius: 6px;
+      font-family: var(--mono);
+      font-size: 15px;
+      letter-spacing: 0;
+    }
+
+    .brand-title {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .brand-subtitle {
+      margin: 1px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .nav {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .nav a,
+    .nav label {
+      padding: 8px 10px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      color: var(--muted);
+      cursor: default;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .nav a:hover,
+    .nav label:hover {
+      border-color: var(--line);
+      background: rgba(255, 253, 247, 0.85);
+      color: var(--ink);
+    }
+
+    .status-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    .badge {
+      display: inline-flex;
+      min-height: 26px;
+      align-items: center;
+      gap: 7px;
+      padding: 4px 9px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--panel);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .badge::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 99px;
+      background: var(--faint);
+    }
+
+    .badge.ready {
+      color: var(--green);
+      background: var(--green-bg);
+      border-color: #b6d6c0;
+    }
+
+    .badge.ready::before {
+      background: var(--green);
+    }
+
+    .badge.warn {
+      color: var(--amber);
+      background: var(--amber-bg);
+      border-color: #e3c992;
+    }
+
+    .badge.warn::before {
+      background: var(--amber);
+    }
+
+    .badge.danger {
+      color: var(--red);
+      background: var(--red-bg);
+      border-color: #d9a8a3;
+    }
+
+    .badge.danger::before {
+      background: var(--red);
+    }
+
+    .badge.info {
+      color: var(--cyan);
+      background: var(--cyan-bg);
+      border-color: #aad3da;
+    }
+
+    .badge.info::before {
+      background: var(--cyan);
+    }
+
+    .page {
+      padding: 34px 28px 56px 316px;
+    }
+
+    .page-inner {
+      width: 100%;
+      margin: 0;
+    }
+
+    .section-head {
+      display: flex;
+      gap: 18px;
+      align-items: flex-end;
+      justify-content: space-between;
+      margin-bottom: 18px;
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--steel);
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: clamp(26px, 3vw, 42px);
+      line-height: 1.02;
+      letter-spacing: 0;
+    }
+
+    .section-summary {
+      max-width: 600px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .dashboard-workbench {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      justify-content: stretch;
+      align-items: start;
+      min-height: 620px;
+    }
+
+    .primary-task {
+      width: 100%;
+    }
+
+    .main-stage {
+      display: grid;
+      gap: 18px;
+      min-width: 0;
+    }
+
+    .workbench-view {
+      display: grid;
+      width: min(760px, 100%);
+      margin: 0 auto;
+      gap: 18px;
+    }
+
+    .detail-view {
+      width: min(1560px, 100%);
+      margin: 0;
+    }
+
+    .task-sidebar {
+      position: fixed;
+      top: 67px;
+      left: 0;
+      bottom: 0;
+      z-index: 18;
+      width: 280px;
+      display: grid;
+      align-content: start;
+      gap: 14px;
+      padding: 18px 16px;
+      border-right: 1px solid var(--line);
+      background: rgba(247, 245, 239, 0.94);
+      backdrop-filter: blur(14px);
+      overflow: auto;
+    }
+
+    .sidebar-action {
+      width: 100%;
+      justify-content: flex-start;
+    }
+
+    .repo-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .repo-group {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 253, 247, 0.72);
+    }
+
+    .repo-group.active {
+      border-color: var(--steel);
+      background: #fffefa;
+      box-shadow: inset 3px 0 0 var(--steel);
+    }
+
+    .repo-head {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+
+    .repo-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .repo-title {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .repo-path {
+      overflow: hidden;
+      margin: 0;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .repo-action {
+      min-width: 28px;
+      min-height: 28px;
+      padding: 0;
+      border-radius: 6px;
+      font-size: 16px;
+      line-height: 1;
+    }
+
+    .task-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .sidebar-title {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 850;
+    }
+
+    .sidebar-note {
+      margin: 3px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .task-item {
+      display: grid;
+      gap: 5px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fffefa;
+    }
+
+    .task-item.active {
+      border-color: var(--steel);
+      box-shadow: inset 3px 0 0 var(--steel);
+    }
+
+    .task-item-title {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 850;
+    }
+
+    .task-item-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+    }
+
+    .current-repo {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 14px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f7f4ec;
+    }
+
+    .current-repo-label {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 850;
+      text-transform: uppercase;
+    }
+
+    .current-repo-name {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      font-size: 14px;
+      font-weight: 900;
+    }
+
+    .current-repo-path {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+      overflow-wrap: anywhere;
+    }
+
+    .task-status {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fffefa;
+    }
+
+    .task-status-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .task-status-title {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 850;
+    }
+
+    .task-status-note {
+      margin: 2px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .evidence-mini {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .evidence-mini span {
+      min-height: 54px;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #f7f4ec;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .evidence-mini strong {
+      display: block;
+      margin-bottom: 3px;
+      color: var(--ink);
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .view-toggle {
+      position: fixed;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .detail-view {
+      display: none;
+    }
+
+    #view-detail:checked ~ .dashboard-workbench .workbench-view {
+      display: none;
+    }
+
+    #view-detail:checked ~ .dashboard-workbench .detail-view {
+      display: block;
+    }
+
+    .panel {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 253, 247, 0.95);
+      box-shadow: var(--shadow);
+    }
+
+    .panel.flush {
+      box-shadow: none;
+    }
+
+    .panel-header {
+      display: flex;
+      min-height: 58px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 15px 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 850;
+      letter-spacing: 0;
+    }
+
+    .panel-note {
+      margin: 2px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .panel-body {
+      padding: 16px;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+      margin-bottom: 13px;
+    }
+
+    .field label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .input,
+    .textarea {
+      width: 100%;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      background: #fffefa;
+      color: var(--ink);
+      outline: none;
+    }
+
+    .input {
+      height: 42px;
+      padding: 0 11px;
+    }
+
+    .textarea {
+      min-height: 102px;
+      resize: vertical;
+      padding: 10px 11px;
+    }
+
+    .input:focus,
+    .textarea:focus {
+      border-color: var(--steel);
+      box-shadow: 0 0 0 3px rgba(49, 68, 91, 0.13);
+    }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 9px;
+      align-items: center;
+    }
+
+    .btn {
+      display: inline-flex;
+      min-height: 40px;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 0 13px;
+      border: 1px solid var(--ink);
+      border-radius: 6px;
+      background: var(--ink);
+      color: var(--panel);
+      cursor: default;
+      font-size: 13px;
+      font-weight: 850;
+      letter-spacing: 0;
+    }
+
+    .btn.secondary {
+      color: var(--ink);
+      background: transparent;
+      border-color: var(--line-strong);
+    }
+
+    .btn.approve {
+      color: #ffffff;
+      background: var(--green);
+      border-color: var(--green);
+    }
+
+    .btn.reject {
+      color: #ffffff;
+      background: var(--red);
+      border-color: var(--red);
+    }
+
+    .demo-block {
+      border: 1px solid #c1d2d6;
+      border-radius: 8px;
+      background: var(--cyan-bg);
+      padding: 16px;
+    }
+
+    .demo-kicker {
+      margin: 0 0 8px;
+      font-family: var(--mono);
+      color: var(--cyan);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .demo-title {
+      margin: 0 0 8px;
+      font-size: 22px;
+      line-height: 1.12;
+      letter-spacing: 0;
+    }
+
+    .demo-text {
+      margin: 0 0 14px;
+      color: #30565d;
+      font-size: 14px;
+    }
+
+    .run-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .run-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fffefa;
+    }
+
+    .run-row.active {
+      border-color: var(--steel);
+      box-shadow: inset 3px 0 0 var(--steel);
+    }
+
+    .run-title {
+      margin: 0 0 5px;
+      font-size: 14px;
+      font-weight: 850;
+    }
+
+    .run-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .evidence-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      min-height: 98px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fffefa;
+    }
+
+    .metric strong {
+      display: block;
+      margin-bottom: 9px;
+      font-size: 26px;
+      line-height: 1;
+      letter-spacing: 0;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .notice {
+      margin-top: 14px;
+      padding: 13px;
+      border: 1px dashed #d7b975;
+      border-radius: 8px;
+      background: #fff7e4;
+      color: #77510d;
+      font-size: 13px;
+    }
+
+    .detail-layout {
+      display: grid;
+      grid-template-columns: minmax(520px, 1.4fr) minmax(360px, 0.9fr);
+      gap: 18px;
+      align-items: start;
+      min-width: 0;
+    }
+
+    .run-hero {
+      margin-bottom: 18px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 253, 247, 0.95);
+    }
+
+    .run-hero-top {
+      display: flex;
+      gap: 14px;
+      align-items: start;
+      justify-content: space-between;
+      margin-bottom: 18px;
+    }
+
+    .run-hero h3 {
+      margin: 0 0 8px;
+      font-size: 25px;
+      line-height: 1.12;
+      letter-spacing: 0;
+    }
+
+    .run-hero p {
+      max-width: 760px;
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .stat-band {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .stat {
+      min-height: 74px;
+      padding: 12px;
+      background: #fffefa;
+      border-right: 1px solid var(--line);
+    }
+
+    .stat:last-child {
+      border-right: 0;
+    }
+
+    .stat span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .stat strong {
+      display: block;
+      margin-top: 6px;
+      font-size: 16px;
+      letter-spacing: 0;
+    }
+
+    .timeline {
+      position: relative;
+      display: grid;
+      gap: 12px;
+      padding: 4px 0 4px 18px;
+      min-width: 0;
+    }
+
+    .timeline::before {
+      content: "";
+      position: absolute;
+      top: 8px;
+      bottom: 8px;
+      left: 5px;
+      width: 2px;
+      background: var(--line-strong);
+    }
+
+    .event {
+      position: relative;
+      min-width: 0;
+      max-width: 100%;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fffefa;
+    }
+
+    .event::before {
+      content: "";
+      position: absolute;
+      top: 18px;
+      left: -18px;
+      width: 10px;
+      height: 10px;
+      border: 2px solid var(--panel);
+      border-radius: 99px;
+      background: var(--steel);
+      box-shadow: 0 0 0 1px var(--steel);
+    }
+
+    .event.good::before {
+      background: var(--green);
+      box-shadow: 0 0 0 1px var(--green);
+    }
+
+    .event.warn::before {
+      background: var(--amber);
+      box-shadow: 0 0 0 1px var(--amber);
+    }
+
+    .event.bad::before {
+      background: var(--red);
+      box-shadow: 0 0 0 1px var(--red);
+    }
+
+    .event-head {
+      display: flex;
+      gap: 10px;
+      align-items: start;
+      justify-content: space-between;
+      margin-bottom: 9px;
+    }
+
+    .event-title {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 850;
+    }
+
+    .event-time {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .event p {
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .excerpt {
+      overflow: auto;
+      min-width: 0;
+      max-width: 100%;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #f4f1e8;
+      color: #26332f;
+      font-family: var(--mono);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .context-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .context-item {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fffefa;
+    }
+
+    .context-path {
+      margin: 0 0 8px;
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 850;
+    }
+
+    .context-reason {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .approval-box {
+      border-color: #d6a45a;
+      background: #fff8e9;
+    }
+
+    .approval-box .panel-header {
+      border-bottom-color: #e5c48d;
+    }
+
+    .footer-space {
+      height: 20px;
+    }
+
+    @media (max-width: 1180px) {
+      .page {
+        padding-left: 280px;
+      }
+
+      .task-sidebar {
+        width: 248px;
+      }
+
+      .evidence-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 1040px) {
+      .detail-layout {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .page {
+        padding: 24px 16px 40px;
+      }
+
+      .topbar {
+        position: static;
+        grid-template-columns: 1fr;
+        padding: 14px 16px;
+      }
+
+      .nav,
+      .status-strip {
+        justify-content: flex-start;
+      }
+
+      .section-head,
+      .run-hero-top {
+        display: grid;
+      }
+
+      .evidence-grid,
+      .stat-band {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .stat:nth-child(2) {
+        border-right: 0;
+      }
+
+      .stat:nth-child(1),
+      .stat:nth-child(2) {
+        border-bottom: 1px solid var(--line);
+      }
+
+      .run-row {
+        grid-template-columns: 1fr;
+      }
+
+      .dashboard-workbench {
+        grid-template-columns: minmax(0, 1fr);
+        min-height: auto;
+      }
+
+      .task-sidebar {
+        position: static;
+        width: auto;
+        padding: 14px;
+        margin-bottom: 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255, 253, 247, 0.95);
+        backdrop-filter: none;
+      }
+
+      .evidence-mini {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">控</div>
+        <div>
+          <h1 class="brand-title">上下文感知编码框架</h1>
+          <p class="brand-subtitle">用于审计编码智能体运行的开发者工作台</p>
+        </div>
+      </div>
+      <nav class="nav" aria-label="原型页面区块">
+        <label for="view-workbench">工作台</label>
+        <label for="view-detail">运行详情</label>
+      </nav>
+      <div class="status-strip" aria-label="系统状态">
+        <span class="badge ready">服务就绪</span>
+        <span class="badge warn">使用环境变量回退</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="page" id="dashboard">
+        <div class="page-inner">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">工作台</p>
+              <h2>按仓库进入任务，再查看 harness 运行。</h2>
+            </div>
+            <p class="section-summary">
+              WebUI 是面向用户的前端入口；harness 在后端完成上下文选择、动作执行、护栏与记录。
+              用户先选择仓库，再新建或继续任务，并通过详情页查看真实运行情况。
+            </p>
+          </div>
+
+          <input class="view-toggle" type="radio" name="main-panel" id="view-workbench" checked>
+          <input class="view-toggle" type="radio" name="main-panel" id="view-detail">
+
+          <div class="dashboard-workbench">
+            <aside class="task-sidebar" aria-label="仓库与任务栏">
+              <div>
+                <h3 class="sidebar-title" id="task-sidebar-title">仓库</h3>
+                <p class="sidebar-note">按仓库组织任务；进入仓库后再新建或继续任务。</p>
+              </div>
+              <button class="btn sidebar-action" type="button">+ 添加仓库</button>
+              <div class="repo-list">
+                <section class="repo-group active" aria-labelledby="repo-harness">
+                  <div class="repo-head">
+                    <div class="repo-title-row">
+                      <h4 class="repo-title" id="repo-harness">harness</h4>
+                      <button class="btn secondary repo-action" type="button" title="在 harness 中新建任务">+</button>
+                    </div>
+                    <p class="repo-path">C:\Users\duoma\java\harness</p>
+                  </div>
+                  <div class="task-list">
+                    <article class="task-item active">
+                      <h5 class="task-item-title">补充计算器边界用例测试</h5>
+                      <div class="task-item-meta">
+                        <span>已成功</span>
+                        <span>14:22</span>
+                      </div>
+                    </article>
+                    <article class="task-item">
+                      <h5 class="task-item-title">检查命令安全策略</h5>
+                      <div class="task-item-meta">
+                        <span>等待审批</span>
+                        <span>14:17</span>
+                      </div>
+                    </article>
+                    <article class="task-item">
+                      <h5 class="task-item-title">导出失败报告样例</h5>
+                      <div class="task-item-meta">
+                        <span>已失败</span>
+                        <span>13:58</span>
+                      </div>
+                    </article>
+                  </div>
+                </section>
+
+                <section class="repo-group" aria-labelledby="repo-campushub">
+                  <div class="repo-head">
+                    <div class="repo-title-row">
+                      <h4 class="repo-title" id="repo-campushub">CampusHub</h4>
+                      <button class="btn secondary repo-action" type="button" title="在 CampusHub 中新建任务">+</button>
+                    </div>
+                    <p class="repo-path">C:\Users\duoma\java\CampusHub</p>
+                  </div>
+                  <div class="task-list">
+                    <article class="task-item">
+                      <h5 class="task-item-title">检查超时订单流程</h5>
+                      <div class="task-item-meta">
+                        <span>已暂停</span>
+                        <span>昨天</span>
+                      </div>
+                    </article>
+                  </div>
+                </section>
+              </div>
+            </aside>
+
+            <div class="main-stage">
+              <div class="main-view workbench-view">
+                <section class="panel primary-task" aria-labelledby="create-task">
+                  <div class="panel-header">
+                    <div>
+                      <h3 class="panel-title" id="create-task">新建任务</h3>
+                      <p class="panel-note">任务会绑定到左侧当前仓库</p>
+                    </div>
+                    <span class="badge info">harness 后端执行</span>
+                  </div>
+                  <div class="panel-body">
+                    <div class="current-repo" aria-label="当前仓库">
+                      <span class="current-repo-label">当前仓库</span>
+                      <div class="current-repo-name">
+                        <span>harness</span>
+                        <span class="badge ready">已选择</span>
+                      </div>
+                      <div class="current-repo-path">C:\Users\duoma\java\harness</div>
+                    </div>
+                    <div class="field">
+                      <label for="task-title">标题</label>
+                      <input class="input" id="task-title" value="补充计算器边界用例测试">
+                    </div>
+                    <div class="field">
+                      <label for="task-desc">描述</label>
+                      <textarea class="textarea" id="task-desc">检查计算器边界行为，补充聚焦测试，并保持验证结果可重复。</textarea>
+                    </div>
+                    <div class="button-row">
+                      <button class="btn" type="button">创建任务</button>
+                      <button class="btn secondary" type="button">创建并运行</button>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="panel" aria-labelledby="current-task">
+                  <div class="panel-header">
+                    <div>
+                      <h3 class="panel-title" id="current-task">当前任务状态</h3>
+                      <p class="panel-note">证据链在运行详情页完整展开</p>
+                    </div>
+                    <span class="badge warn">等待审批</span>
+                  </div>
+                  <div class="panel-body">
+                    <div class="task-status">
+                      <div class="task-status-head">
+                        <div>
+                          <h4 class="task-status-title">检查命令安全策略</h4>
+                          <p class="task-status-note">第 1/6 轮，等待人工审批。运行详情页展示上下文、动作、护栏、反馈和报告。</p>
+                        </div>
+                      </div>
+                      <div class="evidence-mini" aria-label="运行证据摘要">
+                        <span><strong>7</strong>上下文</span>
+                        <span><strong>5</strong>动作</span>
+                        <span><strong>1</strong>护栏</span>
+                        <span><strong>2</strong>反馈</span>
+                      </div>
+                      <div class="button-row">
+                        <label class="btn" for="view-detail">查看运行详情</label>
+                        <button class="btn secondary" type="button">继续等待</button>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              </div>
+
+          <section class="main-view detail-view" id="run-detail">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">运行详情</p>
+              <h2>把一次运行讲成可审计证据链。</h2>
+            </div>
+            <p class="section-summary">
+              详情页按顺序解释 harness 闭环：上下文、结构化动作、护栏、审批、工具结果、反馈和报告。
+            </p>
+          </div>
+
+          <div class="run-hero">
+            <div class="run-hero-top">
+              <div>
+                <h3>补充计算器边界用例测试</h3>
+                <p>
+                  检查计算器边界行为，补充聚焦测试，并保持验证结果可重复。
+                  这条代表性运行展示了命令拦截、待审批动作和脱敏输出。
+                </p>
+              </div>
+              <div class="button-row">
+                <label class="btn secondary" for="view-workbench">返回工作台</label>
+                <button class="btn secondary" type="button">导出 MD</button>
+                <button class="btn secondary" type="button">导出 JSON</button>
+              </div>
+            </div>
+            <div class="stat-band">
+              <div class="stat">
+                <span>状态</span>
+                <strong>等待审批</strong>
+              </div>
+              <div class="stat">
+                <span>轮次</span>
+                <strong>第 2/6 轮</strong>
+              </div>
+              <div class="stat">
+                <span>暂停原因</span>
+                <strong>需要审批</strong>
+              </div>
+              <div class="stat">
+                <span>报告</span>
+                <strong>可导出</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="detail-layout">
+            <section class="panel flush" aria-labelledby="timeline-title">
+              <div class="panel-header">
+                <div>
+                  <h3 class="panel-title" id="timeline-title">时间线</h3>
+                  <p class="panel-note">按顺序排列的审计与领域事件</p>
+                </div>
+              </div>
+              <div class="panel-body">
+                <div class="timeline">
+                  <article class="event good">
+                    <div class="event-head">
+                      <h4 class="event-title">上下文已选择</h4>
+                      <span class="event-time">14:22:09</span>
+                    </div>
+                    <p>仓库索引和记忆机制选中了源码、测试和项目约定。</p>
+                    <div class="excerpt">已选择 7 个上下文项；首要原因：路径与符号匹配计算器测试。</div>
+                  </article>
+
+                  <article class="event">
+                    <div class="event-head">
+                      <h4 class="event-title">收到结构化动作</h4>
+                      <span class="event-time">14:22:16</span>
+                    </div>
+                    <p>MockLLM 返回结构化动作；执行前已通过 schema 校验。</p>
+                    <div class="excerpt">动作=读取文件 路径=tests/test_calculator.py</div>
+                  </article>
+
+                  <article class="event bad">
+                    <div class="event-head">
+                      <h4 class="event-title">护栏拦截命令</h4>
+                      <span class="event-time">14:22:28</span>
+                    </div>
+                    <p>危险 shell 命令在 ToolDispatcher 执行前被拒绝。</p>
+                    <div class="excerpt">风险=严重 原因="该命令族被安全策略拒绝"</div>
+                  </article>
+
+                  <article class="event warn">
+                    <div class="event-head">
+                      <h4 class="event-title">请求人工审批</h4>
+                      <span class="event-time">14:22:42</span>
+                    </div>
+                    <p>非默认验证命令需要人工审批，动作已暂停。</p>
+                    <div class="excerpt">状态=待审批 命令="python -m pytest tests/test_calculator.py -q"</div>
+                  </article>
+
+                  <article class="event good">
+                    <div class="event-head">
+                      <h4 class="event-title">生成反馈</h4>
+                      <span class="event-time">14:23:10</span>
+                    </div>
+                    <p>验证输出被解析为结构化反馈，用于下一轮修复。</p>
+                    <div class="excerpt">类别=断言失败 位置=tests/test_calculator.py::test_zero_division</div>
+                  </article>
+
+                  <article class="event good">
+                    <div class="event-head">
+                      <h4 class="event-title">报告已导出</h4>
+                      <span class="event-time">14:23:31</span>
+                    </div>
+                    <p>Markdown 和 JSON 报告可用；疑似密钥内容已脱敏。</p>
+                    <div class="excerpt">标准输出="[已脱敏]"；输出已截断=true</div>
+                  </article>
+                </div>
+              </div>
+            </section>
+
+            <aside>
+              <section class="panel approval-box" aria-labelledby="approval-title">
+                <div class="panel-header">
+                  <div>
+                    <h3 class="panel-title" id="approval-title">待审批</h3>
+                    <p class="panel-note">执行前需要人工决策</p>
+                  </div>
+                  <span class="badge warn">中风险</span>
+                </div>
+                <div class="panel-body">
+                  <p class="context-path">运行命令</p>
+                  <p class="context-reason">
+                    非默认验证命令需要审批。WebUI 只能批准或拒绝，不能编辑动作内容。
+                  </p>
+                  <div class="excerpt" style="margin: 12px 0;">python -m pytest tests/test_calculator.py -q</div>
+                  <div class="button-row">
+                    <button class="btn approve" type="button">批准</button>
+                    <button class="btn reject" type="button">拒绝</button>
+                  </div>
+                </div>
+              </section>
+
+              <section class="panel" style="margin-top: 18px;" aria-labelledby="context-title">
+                <div class="panel-header">
+                  <div>
+                    <h3 class="panel-title" id="context-title">已选上下文</h3>
+                    <p class="panel-note">解释这些文件为何进入提示</p>
+                  </div>
+                </div>
+                <div class="panel-body">
+                  <div class="context-list">
+                    <article class="context-item">
+                      <p class="context-path">src/calculator.py</p>
+                      <p class="context-reason">源码路径命中任务关键词，并关联到对应测试映射。</p>
+                    </article>
+                    <article class="context-item">
+                      <p class="context-path">tests/test_calculator.py</p>
+                      <p class="context-reason">直接测试映射被选中，用于解释验证反馈。</p>
+                    </article>
+                    <article class="context-item">
+                      <p class="context-path">项目约定</p>
+                      <p class="context-reason">检测到 pytest 命令和仓库本地测试风格。</p>
+                    </article>
+                  </div>
+                </div>
+              </section>
+            </aside>
+          </div>
+          </section>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+    <div class="footer-space"></div>
+  </div>
+</body>
+</html>
