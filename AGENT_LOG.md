@@ -178,3 +178,17 @@
 - TDD GREEN: added CoreService list queries and a real `/` workbench that creates tasks, creates-and-runs tasks, lists runs, and links to run details through WebUI routes.
 - Refactor: replaced corrupted WebUI copy with clean workbench/detail rendering while preserving approval forms and redaction coverage.
 - Validation: `tests/test_service_cli_api.py` passed with 22 tests.
+
+### Task 12 Prototype Fidelity Follow-up
+
+- Worktree: `C:\Users\duoma\java\harness\.worktrees\task-12-webui-workbench`
+- Branch: `codex/task-12-webui-workbench`
+- Prototype input: `C:\Users\duoma\java\harness\design\webui-prototype.html`.
+- Scope note: multi-repository add/switch remains out of scope because the current backend exposes only one `CoreService(repo_path)` repository at a time.
+- WebUI subagent: `019f9889-3b74-77d1-a024-0aa303d07fa0` (no response within 60 seconds; controller closed it and continued from RED).
+- TDD RED:
+  - Added `tests/test_service_cli_api.py::test_webui_workbench_matches_design_prototype_structure`.
+  - Added `tests/test_service_cli_api.py::test_webui_run_detail_matches_design_prototype_structure`.
+  - Focused run failed because the WebUI lacked prototype structures `dashboard-workbench` and `run-hero`.
+- TDD GREEN: reshaped `harness/webui.py` around the prototype DOM: top brand/tabs, repository sidebar, workbench panel, current run summary, run hero, timeline, approval box, context list, and report export links.
+- Refactor validation: `tests/test_service_cli_api.py` passed with 24 tests.

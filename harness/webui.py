@@ -20,7 +20,7 @@ def include_webui(
     *,
     repo_path: str | Path = ".",
 ) -> FastAPI:
-    """Attach the workbench, run detail, and approval routes to an API app."""
+    """Attach the prototype-shaped workbench, run detail, and approval routes."""
 
     if getattr(app.state, "webui_included", False):
         return app
@@ -39,18 +39,12 @@ def include_webui(
 
     @app.post("/ui/tasks")
     def create_task(payload: dict[str, Any]) -> dict[str, Any]:
-        task = core.create_task(
-            _required_title(payload),
-            str(payload.get("description") or ""),
-        )
+        task = core.create_task(_required_title(payload), str(payload.get("description") or ""))
         return {"task_id": task.id, "detail_url": None}
 
     @app.post("/ui/tasks/run")
     def create_and_run_task(payload: dict[str, Any]) -> dict[str, Any]:
-        task = core.create_task(
-            _required_title(payload),
-            str(payload.get("description") or ""),
-        )
+        task = core.create_task(_required_title(payload), str(payload.get("description") or ""))
         run = core.run_task(task.id, max_rounds=int(payload.get("max_rounds") or 1))
         return {"task_id": task.id, "run_id": run.id, "detail_url": f"/ui/runs/{run.id}"}
 
@@ -91,82 +85,106 @@ def _render_workbench(core: CoreService) -> str:
     runs = core.list_runs()
     latest_run = runs[0] if runs else None
     pending_count = sum(1 for run in runs if run.get("status") == "waiting_approval")
-    finished_count = sum(1 for run in runs if run.get("status") in {"succeeded", "stopped"})
+    context_count = 0
+    action_count = 0
+    feedback_count = 0
+    if latest_run:
+        run_id = str(latest_run["id"])
+        context_count = sum(len(pkg.get("items", [])) for pkg in core.list_context(run_id))
+        action_count = len(core.list_actions(run_id))
+        feedback_count = len(core.list_feedback(run_id))
+
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Harness Workbench</title>
+  <title>上下文感知 Harness WebUI 原型</title>
   {_style()}
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/" aria-label="Harness Workbench">
+    <a class="brand" href="/">
       <span class="brand-mark">H</span>
-      <span><strong>Harness Workbench</strong><small>任务编排与运行观测台</small></span>
+      <span>
+        <strong class="brand-title">上下文感知编码框架</strong>
+        <small class="brand-subtitle">Harness Workbench · 用于审计编码智能体运行的开发者工作台</small>
+      </span>
     </a>
-    <nav class="top-actions" aria-label="Workbench actions">
-      <a class="ghost-button" href="/docs">API Docs</a>
-      <a class="solid-button" href="#new-task">新建任务</a>
+    <nav class="nav-tabs" aria-label="main views">
+      <a href="#view-workbench">工作台</a>
+      <a href="#view-detail">运行详情</a>
     </nav>
   </header>
-  <main class="shell">
-    <aside class="sidebar" aria-label="Task list">
-      <section class="repo-panel">
-        <p class="eyebrow">Repository</p>
-        <h1>{escape(core.repo_path.name)}</h1>
-        <p class="repo-path">{escape(str(core.repo_path))}</p>
-      </section>
-      <section class="task-list">
-        <div class="section-title"><h2>任务</h2><span>{len(tasks)}</span></div>
-        {_render_task_list(tasks)}
-      </section>
-    </aside>
-    <section class="workspace">
-      <section class="hero-band">
-        <div>
-          <p class="eyebrow">Live workbench</p>
-          <h2>从这里创建任务、启动运行、进入详情页审批和追踪上下文。</h2>
+  <main class="dashboard-workbench">
+    <input class="view-toggle" type="radio" name="main-panel" id="view-workbench" checked>
+    <input class="view-toggle" type="radio" name="main-panel" id="view-detail">
+    <div class="dashboard-shell">
+      <aside class="task-sidebar">
+        <div class="sidebar-head">
+          <p class="eyebrow">Repositories</p>
+          <button class="btn sidebar-action" type="button" disabled title="当前后端只支持单仓库">+ 添加仓库</button>
         </div>
-        <div class="metric-grid" aria-label="Run metrics">
-          <div><span>Runs</span><strong>{len(runs)}</strong></div>
-          <div><span>Waiting</span><strong>{pending_count}</strong></div>
-          <div><span>Finished</span><strong>{finished_count}</strong></div>
-        </div>
-      </section>
-      <div class="workbench-grid">
-        <section class="panel create-panel" id="new-task">
-          <div class="panel-head">
-            <div><p class="eyebrow">Task composer</p><h3>新建任务</h3></div>
-            <span class="status-pill ready">Service ready</span>
-          </div>
-          <form class="task-form" id="task-form">
-            <label><span>标题</span><input name="title" required placeholder="例如：更新 README 中的启动说明"></label>
-            <label><span>描述</span><textarea name="description" rows="7" placeholder="写下目标、约束、验收标准，Harness 会把它作为任务请求。"></textarea></label>
-            <div class="form-row">
-              <label class="rounds"><span>轮次</span><input name="max_rounds" type="number" min="1" max="12" value="1"></label>
-              <div class="button-row">
-                <button class="ghost-button" type="submit" data-mode="create">创建任务</button>
-                <button class="solid-button" type="submit" data-mode="run">创建并运行</button>
+        <div class="repo-list">
+          <section class="repo-group active" aria-labelledby="repo-current">
+            <div class="repo-head">
+              <div class="repo-title-row">
+                <h4 class="repo-title" id="repo-current">{escape(core.repo_path.name)}</h4>
+                <button class="btn secondary repo-action" type="button" disabled title="当前后端只支持单仓库">+</button>
               </div>
+              <p class="repo-path">{escape(str(core.repo_path))}</p>
             </div>
-            <p class="form-message" id="form-message" role="status"></p>
-          </form>
-        </section>
-        <section class="panel current-panel">
-          <div class="panel-head">
-            <div><p class="eyebrow">Current run</p><h3>当前运行</h3></div>
-            {_status_pill(latest_run.get("status") if latest_run else "idle")}
+            {_render_sidebar_tasks(tasks, runs)}
+          </section>
+        </div>
+      </aside>
+      <section class="main-view workbench-view">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">工作台</p>
+            <h2>把任务提交、运行状态和审计证据放在同一个操作台。</h2>
           </div>
-          {_render_current_run(latest_run)}
+          <p class="section-summary">WebUI 是面向用户的前端入口；harness 在后端完成上下文选择、动作执行、护栏与记录。</p>
+        </div>
+        <section class="panel" id="new-task">
+          <div class="panel-header">
+            <div>
+              <h3 class="panel-title" id="create-task">新建任务</h3>
+              <p class="panel-note">通过 CoreService 创建任务；创建并运行会立即进入后端 runner。</p>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="current-repo" aria-label="当前仓库">
+              <span class="current-repo-label">当前仓库</span>
+              <div class="current-repo-name">{escape(core.repo_path.name)}</div>
+              <div class="current-repo-path">{escape(str(core.repo_path))}</div>
+            </div>
+            <form class="task-form" id="task-form">
+              <label>标题<input class="input" name="title" required placeholder="补充计算器边界用例测试"></label>
+              <label>描述<textarea class="textarea" name="description" rows="7" placeholder="检查边界行为，补充聚焦测试，并保持验证结果可重复。"></textarea></label>
+              <label class="rounds">轮次<input class="input" name="max_rounds" type="number" min="1" max="12" value="1"></label>
+              <div class="button-row">
+                <button class="btn" type="submit" data-mode="create">创建任务</button>
+                <button class="btn secondary" type="submit" data-mode="run">创建并运行</button>
+              </div>
+              <p class="form-message" id="form-message" role="status"></p>
+            </form>
+          </div>
         </section>
-      </div>
-      <section class="panel runs-panel">
-        <div class="panel-head"><div><p class="eyebrow">Run history</p><h3>运行记录</h3></div></div>
-        {_render_run_table(runs)}
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h3 class="panel-title">当前运行</h3>
+              <p class="panel-note">运行详情页展示上下文、动作、护栏、反馈和报告。</p>
+            </div>
+            {_status_badge(latest_run.get("status") if latest_run else "idle")}
+          </div>
+          <div class="panel-body">
+            {_render_current_run(latest_run, context_count, action_count, feedback_count)}
+          </div>
+        </section>
       </section>
-    </section>
+    </div>
   </main>
   {_script()}
 </body>
@@ -182,103 +200,152 @@ def _render_run_detail(core: CoreService, run_id: str) -> str:
     feedback = core.list_feedback(run_id)
     approvals = core.list_approvals(run_id)
     report = core.export_report(run_id, fmt="markdown")
-    title = task.get("title") or "Untitled task"
-    description = task.get("description") or title
-    pending_approvals = [
-        approval for approval in approvals
-        if approval.get("status") == ApprovalStatus.PENDING.value
-    ]
+    title = str(task.get("title") or "Untitled task")
+    description = str(task.get("description") or title)
+    pending = [item for item in approvals if item.get("status") == ApprovalStatus.PENDING.value]
+
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Harness WebUI - {escape(str(title))}</title>
+  <title>Harness WebUI - {escape(title)}</title>
   {_style()}
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/" aria-label="Back to Harness Workbench">
+    <a class="brand" href="/">
       <span class="brand-mark">H</span>
-      <span><strong>Harness WebUI</strong><small>运行详情与审批</small></span>
+      <span>
+        <strong class="brand-title">上下文感知编码框架</strong>
+        <small class="brand-subtitle">运行详情与审批</small>
+      </span>
     </a>
-    <nav class="top-actions" aria-label="Run detail actions">
-      <a class="ghost-button" href="/">返回工作台</a>
-      <a class="solid-button" href="/runs/{escape(run_id)}/report?format=json">JSON Report</a>
+    <nav class="nav-tabs" aria-label="run actions">
+      <a href="/">返回工作台</a>
+      <a href="/runs/{escape(run_id)}/report">导出 MD</a>
+      <a href="/runs/{escape(run_id)}/report?format=json">导出 JSON</a>
     </nav>
   </header>
   <main class="detail-shell">
     <div class="legacy-test-labels" aria-hidden="true">
       运行详情 运行状态 已选上下文 动作轨迹 反馈 待审批 报告
     </div>
-    <section class="hero-band detail-hero">
-      <div>
-        <p class="eyebrow">Run detail</p>
-        <h1>{escape(str(title))}</h1>
-        <p>{escape(str(description))}</p>
+    <section class="run-hero">
+      <div class="run-hero-top">
+        <div>
+          <p class="eyebrow">运行详情</p>
+          <h1>{escape(title)}</h1>
+          <p>{escape(description)}</p>
+        </div>
+        <div class="button-row">
+          <a class="btn secondary" href="/">返回工作台</a>
+          <a class="btn secondary" href="/runs/{escape(run_id)}/report">导出 MD</a>
+          <a class="btn secondary" href="/runs/{escape(run_id)}/report?format=json">导出 JSON</a>
+        </div>
       </div>
-      <div class="metric-grid" aria-label="Run status">
-        <div><span>Status</span><strong>{escape(str(run.get("status") or "unknown"))}</strong></div>
-        <div><span>Round</span><strong>{escape(str(run.get("current_round") or 0))}</strong></div>
-        <div><span>Stop reason</span><strong>{escape(str(run.get("stop_reason") or "none"))}</strong></div>
+      <div class="stat-band">
+        <div class="stat"><span>状态</span><strong>{escape(str(run.get("status") or "unknown"))}</strong></div>
+        <div class="stat"><span>轮次</span><strong>第 {escape(str(run.get("current_round") or 0))} 轮</strong></div>
+        <div class="stat"><span>暂停原因</span><strong>{escape(str(run.get("stop_reason") or "无"))}</strong></div>
+        <div class="stat"><span>报告</span><strong>可导出</strong></div>
       </div>
     </section>
-    <div class="detail-grid">
-      <div>
+    <div class="detail-layout">
+      <section class="panel flush" aria-labelledby="timeline-title">
+        <div class="panel-header">
+          <div>
+            <h3 class="panel-title" id="timeline-title">时间线</h3>
+            <p class="panel-note">按顺序排列的审计与领域事件</p>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="timeline">
+            {_render_timeline(context_packages, actions, feedback, pending)}
+          </div>
+          {_render_actions(actions)}
+          {_render_feedback(feedback)}
+          {_render_report(report)}
+        </div>
+      </section>
+      <aside>
+        {_render_approvals(pending)}
         {_render_context(context_packages)}
-        {_render_actions(actions)}
-        {_render_feedback(feedback)}
-        {_render_report(report)}
-      </div>
-      <aside>{_render_approvals(pending_approvals)}</aside>
+      </aside>
     </div>
   </main>
 </body>
 </html>"""
 
 
-def _render_task_list(tasks: list[dict[str, Any]]) -> str:
+def _render_sidebar_tasks(tasks: list[dict[str, Any]], runs: list[dict[str, Any]]) -> str:
+    by_task = {run.get("task_id"): run for run in runs}
     if not tasks:
         return '<p class="empty">还没有任务。</p>'
     return "".join(
-        f"""<article class="task-row">
-  <strong>{escape(str(task.get("title") or "Untitled task"))}</strong>
-  <small>{escape(str(task.get("status") or "pending"))}</small>
+        f"""<article class="task-item">
+  <span class="badge">{escape(str((by_task.get(task.get("id")) or {}).get("status") or task.get("status") or "pending"))}</span>
+  <h5 class="task-item-title">{escape(str(task.get("title") or "Untitled task"))}</h5>
 </article>"""
         for task in tasks
     )
 
 
-def _render_current_run(run: dict[str, Any] | None) -> str:
+def _render_current_run(
+    run: dict[str, Any] | None,
+    context_count: int,
+    action_count: int,
+    feedback_count: int,
+) -> str:
     if not run:
         return '<p class="empty">创建并运行任务后，这里会显示最新运行。</p>'
-    return f"""<div class="current-run">
+    return f"""<div class="task-status-card">
   <h4>{escape(str(run.get("task_title") or "Untitled task"))}</h4>
-  <p>{escape(str(run.get("task_description") or "暂无描述"))}</p>
-  <dl>
-    <div><dt>Run ID</dt><dd>{escape(str(run.get("id")))}</dd></div>
-    <div><dt>Started</dt><dd>{escape(str(run.get("started_at") or ""))}</dd></div>
-  </dl>
-  <a class="solid-button" href="/ui/runs/{escape(str(run.get("id")))}">打开详情</a>
+  <p class="task-status-note">第 {escape(str(run.get("current_round") or 0))} 轮，状态：{escape(str(run.get("status") or "unknown"))}。</p>
+  <div class="evidence-strip">
+    <span><strong>{context_count}</strong>上下文</span>
+    <span><strong>{action_count}</strong>动作</span>
+    <span><strong>{feedback_count}</strong>反馈</span>
+  </div>
+  <div class="button-row">
+    <a class="btn" href="/ui/runs/{escape(str(run.get("id")))}">查看运行详情</a>
+    <button class="btn secondary" type="button" disabled>继续等待</button>
+  </div>
 </div>"""
 
 
-def _render_run_table(runs: list[dict[str, Any]]) -> str:
-    if not runs:
-        return '<p class="empty">还没有运行记录。使用“创建并运行”会在这里出现第一条记录。</p>'
-    rows = "".join(
-        f"""<tr>
-  <td><a href="/ui/runs/{escape(str(run.get("id")))}">{escape(str(run.get("task_title") or "Untitled task"))}</a></td>
-  <td>{_status_pill(run.get("status"))}</td>
-  <td>{escape(str(run.get("current_round") or 0))}</td>
-  <td>{escape(str(run.get("started_at") or ""))}</td>
-</tr>"""
-        for run in runs
-    )
-    return f"""<div class="table-wrap"><table>
-  <thead><tr><th>任务</th><th>状态</th><th>轮次</th><th>开始时间</th></tr></thead>
-  <tbody>{rows}</tbody>
-</table></div>"""
+def _render_timeline(
+    packages: list[dict[str, Any]],
+    actions: list[dict[str, Any]],
+    feedback: list[dict[str, Any]],
+    approvals: list[dict[str, Any]],
+) -> str:
+    events: list[str] = []
+    if packages:
+        count = sum(len(package.get("items", [])) for package in packages)
+        events.append(_event("good", "上下文已选择", f"已选择 {count} 个上下文项。"))
+    for action in actions:
+        events.append(
+            _event(
+                "warn" if action.get("guardrail_status") == "requires_approval" else "",
+                "收到结构化动作",
+                f"动作={action.get('action_type') or 'unknown'} schema={action.get('schema_status') or 'unknown'}",
+            )
+        )
+    if approvals:
+        command = _compact_json(approvals[0].get("action_args") or {})
+        events.append(_event("warn", "请求人工审批", f"状态=待审批 命令={command}"))
+    for item in feedback:
+        events.append(_event("good", "生成反馈", str(item.get("summary") or item.get("category") or "feedback")))
+    events.append(_event("good", "报告已导出", "Markdown 和 JSON 报告可用；敏感内容由存储和报告层脱敏。"))
+    return "".join(events)
+
+
+def _event(css: str, title: str, excerpt: str) -> str:
+    return f"""<article class="event {escape(css)}">
+  <div class="event-head"><h4 class="event-title">{escape(title)}</h4></div>
+  <div class="excerpt">{escape(excerpt)}</div>
+</article>"""
 
 
 def _render_context(packages: list[dict[str, Any]]) -> str:
@@ -289,84 +356,82 @@ def _render_context(packages: list[dict[str, Any]]) -> str:
             reason = metadata.get("selection_reason") or item.get("summary") or "由上下文选择器选中。"
             source = item.get("source_path") or item.get("kind") or item.get("id")
             items.append(
-                f"""<article class="trace-item">
-  <p class="item-title">{escape(str(source))}</p>
-  <p class="item-meta">{escape(str(reason))}</p>
+                f"""<article class="context-item">
+  <p class="context-path">{escape(str(source))}</p>
+  <p class="context-reason">{escape(str(reason))}</p>
 </article>"""
             )
-    return _panel("Selected context", "解释这些文件或记忆为什么进入提示。", "".join(items) or _empty("暂无上下文。"))
+    body = "".join(items) or '<p class="empty">暂无上下文。</p>'
+    return f"""<section class="panel" aria-labelledby="context-title">
+  <div class="panel-header"><div><h3 class="panel-title" id="context-title">已选上下文</h3><p class="panel-note">解释这些文件为何进入提示</p></div></div>
+  <div class="panel-body"><div class="context-list">{body}</div></div>
+</section>"""
 
 
 def _render_actions(actions: list[dict[str, Any]]) -> str:
     body = "".join(
         f"""<article class="trace-item">
-  <p class="item-title">{escape(str(action.get("action_type") or action.get("type") or "Action"))}</p>
+  <p class="item-title">{escape(str(action.get("action_type") or "Action"))}</p>
   <p class="item-meta">schema={escape(str(action.get("schema_status") or "unknown"))} · guardrail={escape(str(action.get("guardrail_status") or "unknown"))}</p>
-  <div class="code-box">{escape(_compact_json(action))}</div>
+  <div class="excerpt">{escape(_compact_json(action))}</div>
 </article>"""
         for action in actions
     )
-    return _panel("Action trace", "结构化动作、schema 与护栏状态。", body or _empty("暂无动作。"))
+    return _panel("Action trace", "动作轨迹", body or '<p class="empty">暂无动作。</p>')
 
 
 def _render_feedback(feedback: list[dict[str, Any]]) -> str:
     body = "".join(
         f"""<article class="trace-item">
   <p class="item-title">{escape(str(item.get("category") or item.get("source") or "Feedback"))}</p>
-  <p class="item-meta">{escape(str(item.get("summary") or item.get("message") or item.get("content") or ""))}</p>
+  <p class="item-meta">{escape(str(item.get("summary") or ""))}</p>
 </article>"""
         for item in feedback
     )
-    return _panel("Feedback", "验证输出和修复线索。", body or _empty("暂无反馈。"))
+    return _panel("Feedback", "反馈", body or '<p class="empty">暂无反馈。</p>')
 
 
 def _render_approvals(approvals: list[dict[str, Any]]) -> str:
     if not approvals:
-        return _panel("Pending approvals", "执行前需要人工决策。", _empty("暂无待审批动作。"), badge="ready")
+        return """<section class="approval-box" aria-labelledby="approval-title">
+  <div class="panel-header"><div><h3 class="panel-title" id="approval-title">待审批</h3><p class="panel-note">执行前需要人工决策</p></div><span class="badge ready">无待审批</span></div>
+  <div class="panel-body"><p class="empty">暂无待审批动作。</p></div>
+</section>"""
     body = "".join(
-        f"""<article class="trace-item">
-  <p class="item-title">{escape(str(approval.get("action_type") or "Approval request"))}</p>
-  <p class="item-meta">{escape(str(approval.get("reason") or "WebUI 只能批准或拒绝，不能编辑动作内容。"))}</p>
-  <div class="code-box">{escape(_compact_json(approval.get("action_args") or {}))}</div>
+        f"""<article class="approval-item">
+  <p class="context-path">{escape(str(approval.get("action_type") or "Approval request"))}</p>
+  <p class="context-reason">{escape(str(approval.get("reason") or "WebUI 只能批准或拒绝，不能编辑动作内容。"))}</p>
+  <div class="excerpt">{escape(_compact_json(approval.get("action_args") or {}))}</div>
   <div class="button-row">
-    <form method="post" action="/ui/approvals/{escape(str(approval.get("id")))}/approve">
-      <button class="solid-button" type="submit">批准</button>
-    </form>
-    <form method="post" action="/ui/approvals/{escape(str(approval.get("id")))}/reject">
-      <button class="danger-button" type="submit">拒绝</button>
-    </form>
+    <form method="post" action="/ui/approvals/{escape(str(approval.get("id")))}/approve"><button class="btn approve" type="submit">批准</button></form>
+    <form method="post" action="/ui/approvals/{escape(str(approval.get("id")))}/reject"><button class="btn reject" type="submit">拒绝</button></form>
   </div>
 </article>"""
         for approval in approvals
     )
-    return _panel("Pending approvals", "执行前需要人工决策。", body, badge="warn")
-
-
-def _render_report(report: str) -> str:
-    return _panel("Report", "Markdown 报告内容已由报告导出器处理。", f"<pre>{escape(report)}</pre>")
-
-
-def _panel(title: str, note: str, body: str, *, badge: str | None = None) -> str:
-    badge_html = f'<span class="status-pill {badge}">{escape(title)}</span>' if badge else ""
-    return f"""<section class="panel">
-  <div class="panel-head">
-    <div><p class="eyebrow">{escape(title)}</p><h3>{escape(title)}</h3><p>{escape(note)}</p></div>
-    {badge_html}
-  </div>
+    return f"""<section class="approval-box" aria-labelledby="approval-title">
+  <div class="panel-header"><div><h3 class="panel-title" id="approval-title">待审批</h3><p class="panel-note">执行前需要人工决策</p></div><span class="badge warn">中风险</span></div>
   <div class="panel-body">{body}</div>
 </section>"""
 
 
-def _empty(message: str) -> str:
-    return f'<p class="empty">{escape(message)}</p>'
+def _render_report(report: str) -> str:
+    return _panel("Report", "报告", f"<pre>{escape(report)}</pre>")
 
 
-def _status_pill(status: Any) -> str:
+def _panel(title: str, note: str, body: str) -> str:
+    return f"""<section class="panel">
+  <div class="panel-header"><div><h3 class="panel-title">{escape(title)}</h3><p class="panel-note">{escape(note)}</p></div></div>
+  <div class="panel-body">{body}</div>
+</section>"""
+
+
+def _status_badge(status: Any) -> str:
     value = str(status or "unknown")
     css = "ready" if value in {"succeeded", "completed", "stopped"} else ""
     css = "warn" if value in {"waiting_approval", "running", "pending"} else css
     css = "danger" if value in {"failed", "rejected"} else css
-    return f'<span class="status-pill {css}">{escape(value)}</span>'
+    return f'<span class="badge {css}">{escape(value)}</span>'
 
 
 def _compact_json(value: Any) -> str:
@@ -381,116 +446,96 @@ def _compact_json(value: Any) -> str:
 def _style() -> str:
     return """<style>
     :root {
-      --ink: #17211d; --muted: #667069; --paper: #f5f1e8; --panel: #fffdf7;
-      --line: #d5cdbb; --blue: #243f63; --green: #23684b; --green-bg: #dfeee4;
+      --ink: #151d1a; --muted: #657069; --paper: #f5f1e8; --panel: #fffdf7;
+      --line: #d6ccba; --green: #23684b; --green-bg: #dfeee4;
       --amber: #9a640d; --amber-bg: #f4e5c4; --red: #9d332f; --red-bg: #f1d4d1;
       --mono: "Cascadia Code", Consolas, monospace;
       --sans: "Bahnschrift", "Aptos", "Segoe UI", sans-serif;
     }
     * { box-sizing: border-box; }
     body {
-      margin: 0; color: var(--ink);
-      background:
-        linear-gradient(90deg, rgba(23, 33, 29, 0.04) 1px, transparent 1px) 0 0 / 32px 32px,
-        linear-gradient(rgba(23, 33, 29, 0.035) 1px, transparent 1px) 0 0 / 32px 32px,
-        var(--paper);
-      font-family: var(--sans); line-height: 1.45;
+      margin: 0; color: var(--ink); font-family: var(--sans); line-height: 1.45;
+      background: linear-gradient(90deg, rgba(21,29,26,.04) 1px, transparent 1px) 0 0 / 32px 32px,
+                  linear-gradient(rgba(21,29,26,.035) 1px, transparent 1px) 0 0 / 32px 32px,
+                  var(--paper);
     }
     a { color: inherit; }
     .topbar {
       position: sticky; top: 0; z-index: 2; display: flex; align-items: center;
       justify-content: space-between; gap: 18px; padding: 14px 26px;
-      border-bottom: 1px solid var(--line); background: rgba(245, 241, 232, 0.94);
+      border-bottom: 1px solid var(--line); background: rgba(245,241,232,.94);
       backdrop-filter: blur(14px);
     }
-    .brand { display: flex; align-items: center; gap: 12px; text-decoration: none; min-width: 0; }
-    .brand-mark {
-      display: grid; place-items: center; width: 38px; height: 38px; border-radius: 6px;
-      background: var(--ink); color: var(--panel); font-family: var(--mono); font-weight: 900;
-    }
-    .brand strong, .brand small { display: block; }
-    .brand small { color: var(--muted); margin-top: 1px; }
-    .top-actions, .button-row, .form-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-    .ghost-button, .solid-button, .danger-button {
-      display: inline-flex; align-items: center; justify-content: center; min-height: 36px;
-      padding: 8px 13px; border: 1px solid var(--ink); border-radius: 6px;
-      font-weight: 800; text-decoration: none; cursor: pointer;
-    }
-    .ghost-button { background: transparent; color: var(--ink); }
-    .solid-button { background: var(--ink); color: var(--panel); }
-    .danger-button { border-color: var(--red); background: var(--red); color: white; }
-    .shell { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: calc(100vh - 67px); }
-    .sidebar { border-right: 1px solid var(--line); background: rgba(255, 253, 247, 0.62); padding: 24px 18px; }
-    .repo-panel { padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
-    .repo-panel h1 { margin: 0; font-size: 28px; line-height: 1; }
-    .repo-path { margin: 12px 0 0; color: var(--muted); font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
-    .task-list { margin-top: 22px; }
-    .section-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-    .section-title h2 { margin: 0; font-size: 16px; }
-    .task-row { display: grid; gap: 5px; padding: 12px 0; border-top: 1px solid var(--line); }
-    .task-row small, .item-meta, .empty, .panel-head p, .current-run p { color: var(--muted); }
-    .workspace, .detail-shell { padding: 28px; }
-    .hero-band {
-      display: flex; justify-content: space-between; gap: 22px; padding: 24px;
-      border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
-      box-shadow: 0 18px 50px rgba(23, 33, 29, 0.10);
-    }
-    .hero-band h1, .hero-band h2 { max-width: 860px; margin: 0; font-size: clamp(30px, 4vw, 52px); line-height: 1; letter-spacing: 0; }
-    .hero-band p { max-width: 760px; margin: 12px 0 0; color: var(--muted); }
-    .eyebrow { margin: 0 0 8px; color: var(--blue); font-family: var(--mono); font-size: 12px; font-weight: 900; text-transform: uppercase; }
-    .metric-grid {
-      display: grid; grid-template-columns: repeat(3, minmax(92px, 1fr)); min-width: 300px;
-      gap: 1px; overflow: hidden; border: 1px solid var(--line); border-radius: 8px;
-      background: var(--line); align-self: stretch;
-    }
-    .metric-grid div { display: grid; align-content: center; padding: 14px; background: #fbfaf4; }
-    .metric-grid span { color: var(--muted); font-size: 12px; font-weight: 800; }
-    .metric-grid strong { margin-top: 4px; font-size: 22px; }
-    .workbench-grid, .detail-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr); gap: 18px; align-items: start; margin-top: 18px; }
-    .panel { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
-    .panel + .panel { margin-top: 18px; }
-    .panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
-    .panel-head h3 { margin: 0; font-size: 18px; }
-    .panel-head p { margin: 4px 0 0; }
-    .panel-body, .task-form, .current-run { padding: 18px; }
+    .brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+    .brand-mark { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 6px; background: var(--ink); color: var(--panel); font-family: var(--mono); font-weight: 900; }
+    .brand-title, .brand-subtitle { display: block; }
+    .brand-subtitle { color: var(--muted); font-size: 12px; }
+    .nav-tabs, .button-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+    .nav-tabs a, .btn { min-height: 34px; padding: 8px 12px; border: 1px solid var(--ink); border-radius: 6px; background: var(--ink); color: var(--panel); font-weight: 800; text-decoration: none; cursor: pointer; }
+    .btn.secondary, .nav-tabs a { background: transparent; color: var(--ink); }
+    .btn.approve { background: var(--green); border-color: var(--green); }
+    .btn.reject { background: var(--red); border-color: var(--red); color: white; }
+    .btn:disabled { opacity: .55; cursor: not-allowed; }
+    .view-toggle { position: absolute; opacity: 0; pointer-events: none; }
+    .dashboard-shell { display: grid; grid-template-columns: 320px minmax(0, 1fr); min-height: calc(100vh - 67px); }
+    .task-sidebar { border-right: 1px solid var(--line); padding: 24px 18px; background: rgba(255,253,247,.62); }
+    .sidebar-head, .repo-title-row, .section-head, .panel-header, .run-hero-top { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; }
+    .repo-list { display: grid; gap: 14px; }
+    .repo-group, .panel, .run-hero { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+    .repo-group { padding: 16px; }
+    .repo-group.active { box-shadow: inset 4px 0 0 var(--ink); }
+    .repo-title { margin: 0; font-size: 18px; }
+    .repo-path, .current-repo-path, .panel-note, .section-summary, .context-reason, .item-meta, .empty, .task-status-note { color: var(--muted); }
+    .repo-path, .current-repo-path, .excerpt, pre { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+    .task-item { border-top: 1px solid var(--line); padding: 12px 0; }
+    .task-item-title { margin: 7px 0 0; font-size: 15px; }
+    .main-view, .detail-shell { padding: 28px; }
+    .section-head { margin-bottom: 18px; }
+    .section-head h2 { margin: 0; max-width: 780px; font-size: clamp(30px, 4vw, 52px); line-height: 1; letter-spacing: 0; }
+    .eyebrow { margin: 0 0 8px; color: #243f63; font-family: var(--mono); font-size: 12px; font-weight: 900; text-transform: uppercase; }
+    .panel + .panel, .approval-box + .panel { margin-top: 18px; }
+    .panel-header { padding: 16px 18px; border-bottom: 1px solid var(--line); }
+    .panel-title { margin: 0; font-size: 18px; }
+    .panel-note { margin: 4px 0 0; }
+    .panel-body { padding: 18px; }
+    .current-repo { padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: #fbfaf4; margin-bottom: 16px; }
+    .current-repo-label { color: var(--muted); font-size: 12px; font-weight: 900; }
+    .current-repo-name { margin-top: 4px; font-weight: 900; font-size: 20px; }
     .task-form label { display: grid; gap: 7px; margin-bottom: 14px; font-weight: 800; }
-    input, textarea { width: 100%; border: 1px solid var(--line); border-radius: 6px; background: #fffefa; color: var(--ink); font: inherit; padding: 10px 11px; }
-    textarea { resize: vertical; }
-    .rounds { width: 110px; margin: 0; }
-    .form-row { justify-content: space-between; align-items: flex-end; }
-    .form-message { min-height: 20px; margin: 12px 0 0; color: var(--muted); }
-    .status-pill { display: inline-flex; align-items: center; min-height: 26px; padding: 4px 9px; border: 1px solid var(--line); border-radius: 999px; background: #fbfaf4; color: var(--muted); font-size: 12px; font-weight: 900; white-space: nowrap; }
-    .status-pill.ready { color: var(--green); background: var(--green-bg); }
-    .status-pill.warn { color: var(--amber); background: var(--amber-bg); }
-    .status-pill.danger { color: var(--red); background: var(--red-bg); }
-    .current-run h4 { margin: 0; font-size: 22px; }
-    dl { display: grid; gap: 10px; margin: 16px 0; }
-    dl div { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
-    dt { color: var(--muted); font-size: 12px; font-weight: 900; text-transform: uppercase; }
-    dd { margin: 0; overflow-wrap: anywhere; font-family: var(--mono); font-size: 12px; }
-    .runs-panel { margin-top: 18px; }
-    .table-wrap { overflow-x: auto; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 13px 18px; border-top: 1px solid var(--line); text-align: left; }
-    th { color: var(--muted); font-size: 12px; text-transform: uppercase; }
-    .trace-item { padding: 14px 0; border-bottom: 1px solid var(--line); }
-    .trace-item:first-child { padding-top: 0; }
-    .trace-item:last-child { padding-bottom: 0; border-bottom: 0; }
-    .item-title { margin: 0 0 5px; font-weight: 900; }
-    .item-meta { margin: 0; }
-    .code-box, pre { margin-top: 10px; padding: 11px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: #fbfaf4; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; }
-    pre { margin: 0; }
+    .input, .textarea { width: 100%; border: 1px solid var(--line); border-radius: 6px; background: #fffefa; color: var(--ink); font: inherit; padding: 10px 11px; }
+    .textarea { resize: vertical; }
+    .rounds { max-width: 120px; }
+    .form-message { min-height: 20px; color: var(--muted); }
+    .badge { display: inline-flex; align-items: center; min-height: 26px; padding: 4px 9px; border: 1px solid var(--line); border-radius: 999px; background: #fbfaf4; color: var(--muted); font-size: 12px; font-weight: 900; white-space: nowrap; }
+    .badge.ready { color: var(--green); background: var(--green-bg); }
+    .badge.warn { color: var(--amber); background: var(--amber-bg); }
+    .badge.danger { color: var(--red); background: var(--red-bg); }
+    .task-status-card h4 { margin: 0; font-size: 22px; }
+    .evidence-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; margin: 16px 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--line); }
+    .evidence-strip span { display: grid; gap: 4px; padding: 13px; background: #fbfaf4; color: var(--muted); }
+    .evidence-strip strong { color: var(--ink); font-size: 22px; }
+    .run-hero { padding: 24px; box-shadow: 0 18px 50px rgba(21,29,26,.1); }
+    .run-hero h1 { margin: 0; max-width: 780px; font-size: clamp(30px, 4vw, 52px); line-height: 1; letter-spacing: 0; }
+    .stat-band { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin-top: 20px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--line); }
+    .stat { padding: 14px; background: #fbfaf4; }
+    .stat span { color: var(--muted); font-size: 12px; font-weight: 800; }
+    .stat strong { display: block; margin-top: 4px; font-size: 18px; }
+    .detail-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, .65fr); gap: 18px; margin-top: 18px; align-items: start; }
+    .timeline { position: relative; display: grid; gap: 14px; margin-bottom: 18px; }
+    .event { border-left: 4px solid var(--line); padding-left: 14px; }
+    .event.good { border-color: var(--green); }
+    .event.warn { border-color: var(--amber); }
+    .event-title, .context-path, .item-title { margin: 0 0 5px; font-weight: 900; }
+    .excerpt, pre { margin-top: 10px; padding: 11px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: #fbfaf4; white-space: pre-wrap; }
+    .context-list, .trace-item, .approval-item { display: grid; gap: 12px; }
+    .context-item, .trace-item, .approval-item { padding: 12px 0; border-bottom: 1px solid var(--line); }
+    .context-item:last-child, .trace-item:last-child, .approval-item:last-child { border-bottom: 0; }
+    .legacy-test-labels { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
     @media (max-width: 980px) {
-      .shell, .workbench-grid, .detail-grid { grid-template-columns: 1fr; }
-      .sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
-      .hero-band { flex-direction: column; }
-      .metric-grid { min-width: 0; }
-    }
-    @media (max-width: 640px) {
-      .topbar, .form-row { align-items: stretch; flex-direction: column; }
-      .workspace, .detail-shell, .sidebar { padding: 16px; }
-      .metric-grid { grid-template-columns: 1fr; }
-      .hero-band h1, .hero-band h2 { font-size: 30px; }
+      .dashboard-shell, .detail-layout { grid-template-columns: 1fr; }
+      .task-sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
+      .section-head, .run-hero-top { flex-direction: column; }
+      .stat-band, .evidence-strip { grid-template-columns: 1fr; }
     }
   </style>"""
 
@@ -503,7 +548,7 @@ def _script() -> str:
     document.querySelectorAll("button[data-mode]").forEach((button) => {
       button.addEventListener("click", () => { mode = button.dataset.mode; });
     });
-    form.addEventListener("submit", async (event) => {
+    form?.addEventListener("submit", async (event) => {
       event.preventDefault();
       const data = Object.fromEntries(new FormData(form).entries());
       const endpoint = mode === "run" ? "/ui/tasks/run" : "/ui/tasks";
@@ -514,15 +559,10 @@ def _script() -> str:
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify(data),
         });
-        if (!response.ok) {
-          throw new Error(await response.text());
-        }
+        if (!response.ok) throw new Error(await response.text());
         const result = await response.json();
-        if (result.detail_url) {
-          window.location.href = result.detail_url;
-        } else {
-          window.location.reload();
-        }
+        if (result.detail_url) window.location.href = result.detail_url;
+        else window.location.reload();
       } catch (error) {
         message.textContent = "提交失败：" + error.message;
       }
