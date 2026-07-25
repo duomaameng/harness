@@ -412,6 +412,25 @@ def test_webui_create_and_run_endpoint_returns_detail_url(tmp_path):
     assert service.get_status(result["run_id"])["task"]["title"] == "Run from workbench"
 
 
+def test_webui_task_endpoints_return_bad_request_for_invalid_input(tmp_path):
+    repo = tmp_path / "webui-invalid-input-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    api = create_app(service)
+
+    with pytest.raises(HTTPException) as missing_title:
+        _endpoint(api, "/ui/tasks", "POST")({"title": "   "})
+
+    with pytest.raises(HTTPException) as bad_rounds:
+        _endpoint(api, "/ui/tasks/run", "POST")({
+            "title": "Run from workbench",
+            "max_rounds": "bad",
+        })
+
+    assert missing_title.value.status_code == 400
+    assert bad_rounds.value.status_code == 400
+
+
 def test_webui_workbench_matches_design_prototype_structure(tmp_path):
     repo = tmp_path / "prototype-workbench-repo"
     repo.mkdir()
@@ -435,6 +454,19 @@ def test_webui_workbench_matches_design_prototype_structure(tmp_path):
     assert "创建并运行" in html
     assert "查看运行详情" in html
     assert f"/ui/runs/{run.id}" in html
+
+
+def test_webui_workbench_detail_nav_links_to_latest_run(tmp_path):
+    repo = tmp_path / "prototype-workbench-nav-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    api = create_app(service)
+    task = service.create_task("Nav target", "Latest run should drive detail navigation")
+    run = service.run_task(task.id, max_rounds=1)
+
+    html = _endpoint(api, "/", "GET")().body.decode("utf-8")
+
+    assert f'<a href="/ui/runs/{run.id}">运行详情</a>' in html
 
 
 def test_webui_run_detail_matches_design_prototype_structure(tmp_path):

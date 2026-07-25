@@ -7,7 +7,7 @@ from html import escape
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from harness.domain import ApprovalStatus
@@ -45,7 +45,7 @@ def include_webui(
     @app.post("/ui/tasks/run")
     def create_and_run_task(payload: dict[str, Any]) -> dict[str, Any]:
         task = core.create_task(_required_title(payload), str(payload.get("description") or ""))
-        run = core.run_task(task.id, max_rounds=int(payload.get("max_rounds") or 1))
+        run = core.run_task(task.id, max_rounds=_max_rounds(payload))
         return {"task_id": task.id, "run_id": run.id, "detail_url": f"/ui/runs/{run.id}"}
 
     @app.get("/ui/runs/{run_id}", response_class=HTMLResponse)
@@ -76,8 +76,18 @@ def include_webui(
 def _required_title(payload: dict[str, Any]) -> str:
     title = str(payload.get("title") or "").strip()
     if not title:
-        raise ValueError("Task title is required")
+        raise HTTPException(status_code=400, detail="Task title is required")
     return title
+
+
+def _max_rounds(payload: dict[str, Any]) -> int:
+    try:
+        max_rounds = int(payload.get("max_rounds") or 1)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="max_rounds must be an integer") from exc
+    if max_rounds < 1:
+        raise HTTPException(status_code=400, detail="max_rounds must be at least 1")
+    return max_rounds
 
 
 def _render_workbench(core: CoreService) -> str:
@@ -85,6 +95,7 @@ def _render_workbench(core: CoreService) -> str:
     runs = core.list_runs()
     latest_run = runs[0] if runs else None
     pending_count = sum(1 for run in runs if run.get("status") == "waiting_approval")
+    detail_href = f"/ui/runs/{latest_run['id']}" if latest_run else "#view-detail"
     context_count = 0
     action_count = 0
     feedback_count = 0
@@ -113,7 +124,7 @@ def _render_workbench(core: CoreService) -> str:
     </a>
     <nav class="nav-tabs" aria-label="main views">
       <a href="#view-workbench">工作台</a>
-      <a href="#view-detail">运行详情</a>
+      <a href="{escape(detail_href)}">运行详情</a>
     </nav>
   </header>
   <main class="dashboard-workbench">
