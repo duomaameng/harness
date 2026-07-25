@@ -42,6 +42,19 @@ class CoreService:
             Task(title=title, description=description, repo_path=str(self.repo_path))
         )
 
+    def list_tasks(self) -> list[dict[str, Any]]:
+        return self.storage._fetchall(
+            "SELECT * FROM task ORDER BY created_at DESC"
+        )
+
+    def list_runs(self) -> list[dict[str, Any]]:
+        return self.storage._fetchall(
+            "SELECT task_run.*, task.title AS task_title, "
+            "task.description AS task_description "
+            "FROM task_run JOIN task ON task.id=task_run.task_id "
+            "ORDER BY task_run.started_at DESC"
+        )
+
     def run_task(self, task_id: str, *, max_rounds: int = 6):
         runner = AgentRunner(
             storage=self.storage,

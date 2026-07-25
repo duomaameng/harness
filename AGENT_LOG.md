@@ -164,3 +164,17 @@
 - TDD GREEN: added `harness/webui.py`, mounted routes from `harness/api.py`, and the focused WebUI test passed.
 - Refactor: simplified WebUI action summary filtering.
 - Validation: `tests/test_service_cli_api.py` passed with 14 tests.
+
+### Task 12 WebUI Workbench Follow-up
+
+- Worktree: `C:\Users\duoma\java\harness\.worktrees\task-12-webui-workbench`
+- Branch: `codex/task-12-webui-workbench`
+- WebUI subagent: `019f9875-5a8b-7fb2-8667-d89389a73037` (no response within 60 seconds; controller closed it and continued from RED).
+- Prototype input: `C:\Users\duoma\java\harness\design\webui-prototype.html`.
+- TDD RED:
+  - Added `tests/test_service_cli_api.py::test_webui_root_renders_integrated_workbench_with_existing_runs`.
+  - Added `tests/test_service_cli_api.py::test_webui_create_and_run_endpoint_returns_detail_url`.
+  - Focused run failed with missing `GET /` and missing `POST /ui/tasks/run`.
+- TDD GREEN: added CoreService list queries and a real `/` workbench that creates tasks, creates-and-runs tasks, lists runs, and links to run details through WebUI routes.
+- Refactor: replaced corrupted WebUI copy with clean workbench/detail rendering while preserving approval forms and redaction coverage.
+- Validation: `tests/test_service_cli_api.py` passed with 22 tests.

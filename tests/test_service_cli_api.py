@@ -376,6 +376,42 @@ def test_approval_action_args_are_redacted_for_api_and_webui(tmp_path):
     assert "[REDACTED]" in html
 
 
+def test_webui_root_renders_integrated_workbench_with_existing_runs(tmp_path):
+    repo = tmp_path / "webui-workbench-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    api = create_app(service)
+    task = service.create_task("Update docs", "Update README with startup notes")
+    run = service.run_task(task.id, max_rounds=1)
+
+    response = _endpoint(api, "/", "GET")()
+    html = response.body.decode("utf-8")
+
+    assert "Harness Workbench" in html
+    assert "新建任务" in html
+    assert "Update docs" in html
+    assert f"/ui/runs/{run.id}" in html
+    assert str(repo) in html
+
+
+def test_webui_create_and_run_endpoint_returns_detail_url(tmp_path):
+    repo = tmp_path / "webui-create-run-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    api = create_app(service)
+
+    result = _endpoint(api, "/ui/tasks/run", "POST")({
+        "title": "Run from workbench",
+        "description": "Create through WebUI form",
+        "max_rounds": 1,
+    })
+
+    assert result["task_id"]
+    assert result["run_id"]
+    assert result["detail_url"] == f"/ui/runs/{result['run_id']}"
+    assert service.get_status(result["run_id"])["task"]["title"] == "Run from workbench"
+
+
 def test_webui_pending_approval_panel_shows_redacted_action_args(tmp_path):
     from harness.webui import include_webui
 
