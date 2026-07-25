@@ -17,7 +17,7 @@ app.add_typer(auth_app, name="auth")
 
 
 def _service(repo: Path, *, mock_llm: bool = False) -> CoreService:
-    llm = MockLLM([]) if mock_llm else MockLLM([])
+    llm = MockLLM([]) if mock_llm else None
     return CoreService(repo, llm=llm)
 
 
@@ -34,6 +34,12 @@ def run(
     mock_llm: bool = typer.Option(False, "--mock-llm"),
     max_rounds: int = typer.Option(6, "--max-rounds"),
 ) -> None:
+    if not mock_llm:
+        typer.echo(
+            "Real LLM client configuration is not implemented yet. Use --mock-llm.",
+            err=True,
+        )
+        raise typer.Exit(1)
     service = _service(repo, mock_llm=mock_llm)
     created = service.create_task(task, task)
     run_result = service.run_task(created.id, max_rounds=max_rounds)
@@ -54,19 +60,20 @@ def status(
 
 
 @auth_app.command("set")
-def auth_set(api_key: str = typer.Argument(...)) -> None:
+def auth_set() -> None:
+    api_key = typer.prompt("API key", hide_input=True)
     CredentialService().set(api_key)
     typer.echo(json_dumps({"configured": True, "source": "keyring"}))
 
 
 @auth_app.command("status")
-def auth_status() -> None:
-    typer.echo(json_dumps(CredentialService().status()))
+def auth_status(repo: Path = typer.Option(Path("."), "--repo", "-r")) -> None:
+    typer.echo(json_dumps(_service(repo).credential_service().status()))
 
 
 @auth_app.command("clear")
-def auth_clear() -> None:
-    typer.echo(json_dumps({"cleared": CredentialService().clear()}))
+def auth_clear(repo: Path = typer.Option(Path("."), "--repo", "-r")) -> None:
+    typer.echo(json_dumps({"cleared": _service(repo).credential_service().clear()}))
 
 
 @app.command("memory")

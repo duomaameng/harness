@@ -9,7 +9,7 @@ from typing import Any
 
 from harness.auth import CredentialService
 from harness.domain import ApprovalStatus, MemoryKind, Task
-from harness.llm import LLMClient, MockLLM
+from harness.llm import LLMClient
 from harness.memory import MemoryStore
 from harness.reports import ReportExporter
 from harness.runner import AgentRunner
@@ -29,7 +29,7 @@ class CoreService:
         self.repo_path = Path(repo_path).resolve()
         self.storage = HarnessStorage(self.repo_path)
         self.storage.init()
-        self.llm = llm or MockLLM([])
+        self.llm = llm
         self.validation_commands = validation_commands
         self.memory_store = MemoryStore(self.storage)
 
@@ -43,6 +43,8 @@ class CoreService:
         )
 
     def run_task(self, task_id: str, *, max_rounds: int = 6):
+        if self.llm is None:
+            raise ValueError("LLM client is required. Use MockLLM for offline tests or configure a real client.")
         runner = AgentRunner(
             storage=self.storage,
             llm=self.llm,
@@ -63,7 +65,10 @@ class CoreService:
             (run_id,),
         )
         for package in packages:
-            package["items"] = self.storage.get_package_items(package["id"])
+            package["items"] = [
+                self._context_item_payload(item_id)
+                for item_id in self.storage.get_package_items(package["id"])
+            ]
         return packages
 
     def list_actions(self, run_id: str) -> list[dict[str, Any]]:
@@ -154,6 +159,21 @@ class CoreService:
         if run is None:
             raise ValueError(f"Unknown task run: {run_id}")
         return run
+
+    def _context_item_payload(self, item_id: str) -> dict[str, Any]:
+        item = self.storage.get_context_item(item_id)
+        if item is None:
+            return {"id": item_id, "missing": True}
+        if item.get("metadata"):
+            try:
+                item["metadata"] = json.loads(item["metadata"])
+            except json.JSONDecodeError:
+                item["metadata_raw"] = item["metadata"]
+                item["metadata_parse_error"] = True
+                item["metadata"] = {}
+        else:
+            item["metadata"] = {}
+        return item
 
 
 def json_dumps(data: Any) -> str:

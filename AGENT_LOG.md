@@ -145,7 +145,7 @@
 - Worktree: `C:\Users\duoma\java\harness\.worktrees\task-12-service-cli-api`
 - Branch: `codex/task-12-service-cli-api`
 - Implementer subagent: `019f649b-c2dd-7700-b6ae-1aad53a71eb5` (timed out after 60 seconds; controller continued from its RED test and closed it).
-- Scope note: completed Task 12 outside `harness/webui.py`; WebUI design/implementation is deferred per user request.
+- Scope note: Task 12 is now complete, including the WebUI portion from `C:\Users\duoma\java\harness\design\webui-prototype.html`.
 - TDD RED:
   - `python` was unavailable on PATH.
   - Bundled Python ran `tests/test_service_cli_api.py::test_cli_run_with_mock_llm_creates_task_run_and_context_trace` and failed with `ModuleNotFoundError: No module named 'harness.cli'`.
@@ -153,3 +153,14 @@
 - Refactor: aligned service helper exports and CLI/service contracts after the task file validation exposed an import mismatch.
 - Validation: `tests/test_service_cli_api.py` passed with 4 tests after refactor.
 - Review status: review skipped per user no-extra-check constraints.
+
+### Task 12 WebUI Completion
+
+- WebUI subagent: `019f97c9-393e-78d0-a12f-b2ff6eb18834`.
+- Prototype input: `C:\Users\duoma\java\harness\design\webui-prototype.html`.
+- TDD RED:
+  - Added `tests/test_service_cli_api.py::test_webui_run_page_renders_observability_and_approval_forms`.
+  - `C:\Users\duoma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe -c "from harness.webui import include_webui"` failed with `ModuleNotFoundError: No module named 'harness.webui'`.
+- TDD GREEN: added `harness/webui.py`, mounted routes from `harness/api.py`, and the focused WebUI test passed.
+- Refactor: simplified WebUI action summary filtering.
+- Validation: `tests/test_service_cli_api.py` passed with 14 tests.

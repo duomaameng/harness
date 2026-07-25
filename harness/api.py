@@ -74,10 +74,13 @@ def create_app(service: CoreService | None = None, *, repo_path: str | Path = ".
         )
 
     @app.get("/runs/{run_id}/report")
-    def get_report(run_id: str) -> dict[str, Any]:
-        return _wrap(lambda: core.report_payload(run_id))
+    def get_report(run_id: str, format: str = "markdown") -> dict[str, str]:
+        return _wrap(lambda: {"content": core.export_report(run_id, fmt=format)})
 
     app.state.core_service = core
+    from harness.webui import include_webui
+
+    include_webui(app, core)
     return app
 
 
