@@ -685,6 +685,22 @@ def _style() -> str:
     .result-card.warn { border-left-color: var(--amber); background: var(--amber-bg); }
     .result-card h3 { margin: 0 0 8px; font-size: 24px; }
     .result-card p:last-child { margin-bottom: 0; }
+    .report-markdown { overflow-x: auto; }
+    .report-markdown h1, .report-markdown h2 { margin: 28px 0 12px; line-height: 1.15; }
+    .report-markdown h1 { font-size: 30px; }
+    .report-markdown h2 { font-size: 22px; }
+    .report-markdown h1:first-child { margin-top: 0; }
+    .report-markdown p, .report-markdown ul { margin: 10px 0; }
+    .report-markdown ul { padding-left: 22px; }
+    .report-markdown table { width: 100%; min-width: 700px; border-collapse: collapse; margin: 14px 0; background: #fffefa; }
+    .report-markdown th, .report-markdown td { padding: 11px 12px; border: 1px solid var(--line); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+    .report-markdown th { background: #ede8dc; font-size: 13px; white-space: nowrap; }
+    .report-markdown th:first-child, .report-markdown td:first-child { width: 23%; }
+    .report-markdown th:nth-child(2), .report-markdown td:nth-child(2) { width: 16%; }
+    .report-markdown th:nth-child(3), .report-markdown td:nth-child(3) { width: 51%; }
+    .report-markdown th:last-child, .report-markdown td:last-child { width: 10%; text-align: center; }
+    .report-markdown details { margin-top: 18px; padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: #fbfaf4; }
+    .report-markdown summary { cursor: pointer; font-weight: 800; }
     .event { border-left: 4px solid var(--line); padding-left: 14px; }
     .event.good { border-color: var(--green); }
     .event.warn { border-color: var(--amber); }
