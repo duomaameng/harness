@@ -29,7 +29,7 @@ class ReportExporter:
 
     def to_markdown(self) -> str:
         redacted = self._redact(self.report)
-        lines = ["# Harness Run Report", ""]
+        lines = ["# \u8fd0\u884c\u62a5\u544a", ""]
         self._render_overview(lines, redacted)
         self._render_conclusion(lines, redacted)
         self._render_context(lines, redacted)
@@ -37,7 +37,7 @@ class ReportExporter:
         self._render_feedback(lines, redacted)
         self._render_approvals(lines, redacted)
         self._render_changed_files(lines, redacted)
-        lines.extend(("## \u7039\xa4\ue178\u9358\u71b7\ue750\u93c1\u7248\u5d41", "", "<details>", "<summary>\u7039\xa4\ue178\u9358\u71b7\ue750\u93c1\u7248\u5d41</summary>", "", "```json", json.dumps(redacted, ensure_ascii=False, indent=2), "```", "", "</details>", ""))
+        lines.extend(("## \u5ba1\u8ba1\u539f\u59cb\u6570\u636e", "", "<details>", "<summary>\u5ba1\u8ba1\u539f\u59cb\u6570\u636e</summary>", "", "```json", json.dumps(redacted, ensure_ascii=False, indent=2), "```", "", "</details>", ""))
         return "\n".join(lines).rstrip() + "\n"
 
     export_markdown = to_markdown
@@ -91,14 +91,14 @@ class ReportExporter:
         return str(value) if value not in (None, "") else "-"
 
     def _render_overview(self, lines: list[str], report: Mapping[str, Any]) -> None:
-        self._section(lines, "\u6769\u612f\ue511\u59d2\u509d\ue74d")
+        self._section(lines, "\u8fd0\u884c\u6982\u89c8")
         for label, key in (("\u4efb\u52a1", "task_request"), ("\u72b6\u6001", "final_status"), ("\u505c\u6b62\u539f\u56e0", "stop_reason")):
             if key in report:
                 lines.append(f"- {label}: {self._value(report[key])}")
         lines.append("")
 
     def _render_conclusion(self, lines: list[str], report: Mapping[str, Any]) -> None:
-        self._section(lines, "\u93c8\u20ac\u7f01\u5822\u7ca8\u7481\u7bf3")
+        self._section(lines, "\u6700\u7ec8\u7ed3\u8bba")
         summary = ""
         for action in report.get("action_trace", []):
             if not isinstance(action, Mapping) or action.get("tool") != "finish":
@@ -111,9 +111,9 @@ class ReportExporter:
         lines.extend((summary or "-", ""))
 
     def _render_context(self, lines: list[str], report: Mapping[str, Any]) -> None:
-        self._section(lines, "\u6924\u572d\u6d30\u6e1a\u6fca\u7986\u5bb8\u53c9\u20ac\u8364\u7ca8\u9286\u4fd9")
+        self._section(lines, "\u5df2\u9009\u4e0a\u4e0b\u6587")
         context = report.get("selected_context", [])
-        lines.append("| \u93c2\u56e6\u6b22 | \u7eeb\u8bf2\u7037 | \u95ab\u590b\u5ae8\u9358\u71b7\u6d1c | \u7487\u52eb\u578e |")
+        lines.append("| \u6587\u4ef6 | \u7c7b\u578b | \u9009\u62e9\u539f\u56e0 | \u8bc4\u5206 |")
         lines.append("| --- | --- | --- | --- |")
         rendered = False
         for item in context:
@@ -135,7 +135,7 @@ class ReportExporter:
         lines.append("")
 
     def _render_actions(self, lines: list[str], report: Mapping[str, Any]) -> None:
-        self._section(lines, "\u5bb8\u67e5\u20ac\u5909\u7b02\u6d93\u5b2b\u6783")
+        self._section(lines, "\u52a8\u4f5c\u8f68\u8ff9")
         actions = report.get("action_trace", [])
         for action in actions:
             if not isinstance(action, Mapping):
@@ -145,7 +145,7 @@ class ReportExporter:
             args = self._action_args(action)
             path = action.get("path") or (args.get("path") if isinstance(args, Mapping) else None)
             if tool == "read_file" and path:
-                lines.append(f"- \u7487\u8bf2\u5f47\u93c2\u56e6\u6b22\u951b\u6b5a: {path}")
+                lines.append(f"- \u8bfb\u53d6\u6587\u4ef6: {path}")
             elif args:
                 rendered = json.dumps(args, ensure_ascii=False) if isinstance(args, (Mapping, list)) else str(args)
                 lines.append(f"- {tool}: {rendered}")
@@ -181,7 +181,7 @@ class ReportExporter:
         lines.append("")
 
     def _render_changed_files(self, lines: list[str], report: Mapping[str, Any]) -> None:
-        self._section(lines, "\u9354\u3124\u7d94\u675e\u3128\u8ff9")
+        self._section(lines, "\u53d8\u66f4\u6587\u4ef6")
         files = report.get("changed_files", [])
         for path in files:
             lines.append(f"- {self._value(path)}")
