@@ -484,6 +484,12 @@
 - Confirm no tests require a real LLM, API key, or network access.
 - Confirm `.gitignore` excludes `.harness/` and `.env`.
 
+## Readable Run Reports
+
+- Markdown reports must use Chinese semantic sections rather than exposing report payloads as JSON.
+- The WebUI report panel and Markdown download share `ReportExporter.to_markdown()`.
+- JSON export remains unchanged for machine-readable audit data.
+
 ## Self-Review Against SPEC.md
 
 - CLI, API, WebUI, and Core Service are covered by Task 12.
