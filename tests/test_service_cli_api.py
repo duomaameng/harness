@@ -593,6 +593,23 @@ def test_report_endpoint_and_webui_render_readable_completed_run_report(tmp_path
         assert "```json" not in consumer.split("瀹¤鍘熷鏁版嵁", 1)[0]
 
 
+def test_webui_run_detail_renders_report_markdown_as_semantic_html(tmp_path):
+    repo = tmp_path / "webui-semantic-report-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    api = create_app(service)
+    task_id = _endpoint(api, "/tasks", "POST")({"title": "Render report"})["id"]
+    run_id = _endpoint(api, "/tasks/{task_id}/runs", "POST")(task_id, {"max_rounds": 1})["id"]
+
+    html = _endpoint(api, "/ui/runs/{run_id}", "GET")(run_id).body.decode("utf-8")
+
+    assert "<h1>Harness Run Report</h1>" in html
+    assert "<table>" in html
+    assert "<details>" in html
+    assert "<summary>" in html
+    assert "<pre># Harness Run Report" not in html
+
+
 def test_webui_run_detail_explains_invalid_model_action_as_no_usable_result(tmp_path):
     repo = tmp_path / "webui-invalid-result-repo"
     repo.mkdir()
