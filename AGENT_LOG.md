@@ -192,3 +192,11 @@
   - Focused run failed because the WebUI lacked prototype structures `dashboard-workbench` and `run-hero`.
 - TDD GREEN: reshaped `harness/webui.py` around the prototype DOM: top brand/tabs, repository sidebar, workbench panel, current run summary, run hero, timeline, approval box, context list, and report export links.
 - Refactor validation: `tests/test_service_cli_api.py` passed with 24 tests.
+
+### Readable Run Reports
+
+- Branch: `codex/readable-run-reports`.
+- TDD RED: added a report-export regression test that failed because the previous Markdown exporter emitted English headings and raw JSON code blocks.
+- TDD GREEN: `ReportExporter.to_markdown()` now renders Chinese overview, conclusion, context, action, validation, approval, changed-file, and audit-data sections; JSON export and redaction behavior remain unchanged.
+- Integration: report download and WebUI run detail both consume the same readable Markdown report.
+- Focused report-export test passed. One existing integration test remains environment-blocked because it attempts an external LLM request under restricted network permissions.
