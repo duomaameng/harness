@@ -532,7 +532,11 @@ def _render_markdown(markdown: str) -> str:
             class_name = f' class="language-{escape(language)}"' if language else ""
             rendered.append(f"<pre><code{class_name}>{escape(chr(10).join(code))}</code></pre>")
             continue
-        if line.startswith("|") and index + 1 < len(lines) and lines[index + 1].startswith("|"):
+        if (
+            line.startswith("|")
+            and index + 1 < len(lines)
+            and _is_markdown_table_separator(lines[index + 1])
+        ):
             table_lines = [line]
             index += 2
             while index < len(lines) and lines[index].startswith("|"):
@@ -565,6 +569,11 @@ def _render_markdown(markdown: str) -> str:
 
 def _markdown_table_row(line: str) -> list[str]:
     return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def _is_markdown_table_separator(line: str) -> bool:
+    cells = _markdown_table_row(line)
+    return bool(cells) and all(cell and set(cell) <= {"-", ":"} for cell in cells)
 
 
 def _panel(title: str, note: str, body: str) -> str:

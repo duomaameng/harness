@@ -598,13 +598,20 @@ def test_webui_run_detail_renders_report_markdown_as_semantic_html(tmp_path):
     repo.mkdir()
     service = CoreService(repo, llm=MockLLM([]))
     api = create_app(service)
-    task_id = _endpoint(api, "/tasks", "POST")({"title": "Render report"})["id"]
+    task_id = _endpoint(api, "/tasks", "POST")({
+        "title": "Render report",
+        "description": "<img src=x onerror=1>",
+    })["id"]
     run_id = _endpoint(api, "/tasks/{task_id}/runs", "POST")(task_id, {"max_rounds": 1})["id"]
 
     html = _endpoint(api, "/ui/runs/{run_id}", "GET")(run_id).body.decode("utf-8")
 
     assert "<h1>Harness Run Report</h1>" in html
     assert "<table>" in html
+    assert "<td>---</td>" not in html
+    assert "<ul><li>" in html
+    assert "&lt;img src=x onerror=1&gt;" in html
+    assert "<img src=x onerror=1>" not in html
     assert "<details>" in html
     assert "<summary>" in html
     assert "<pre># Harness Run Report" not in html
