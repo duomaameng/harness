@@ -117,6 +117,8 @@ class ReportExporter:
         lines.append("| --- | --- | --- | --- |")
         for item in context:
             if isinstance(item, Mapping):
+                if self._is_absolute_path(item.get("file")):
+                    continue
                 lines.append("| {} | {} | {} | {} |".format(
                     self._value(item.get("file")), self._value(item.get("type")),
                     self._value(item.get("reason")), self._value(item.get("score")),
@@ -154,8 +156,7 @@ class ReportExporter:
         results = report.get("tool_results", [])
         for item in [*feedback, *results]:
             if isinstance(item, Mapping):
-                value = item.get("comment") or item.get("result") or item.get("excerpt") or item
-                lines.append(f"- {self._value(value)}")
+                lines.append(f"- {self._render_record(item)}")
             else:
                 lines.append(f"- {self._value(item)}")
         if not feedback and not results:
@@ -167,7 +168,7 @@ class ReportExporter:
         approvals = report.get("approval_decisions", [])
         for approval in approvals:
             if isinstance(approval, Mapping):
-                lines.append(f"- {self._value(approval.get('status'))}: {self._value(approval.get('reason'))}")
+                lines.append(f"- {self._render_record(approval)}")
             else:
                 lines.append(f"- {self._value(approval)}")
         if not approvals:
@@ -192,3 +193,14 @@ class ReportExporter:
             return json.loads(args)
         except json.JSONDecodeError:
             return args
+
+    @staticmethod
+    def _is_absolute_path(value: Any) -> bool:
+        return isinstance(value, str) and (value.startswith(("/", "\\")) or bool(re.match(r"^[A-Za-z]:[\\/]", value)))
+
+    def _render_record(self, record: Mapping[str, Any]) -> str:
+        preferred = ("state", "status", "reason", "result", "comment", "excerpt")
+        values = [f"{key}: {self._value(record[key])}" for key in preferred if key in record]
+        if values:
+            return "; ".join(values)
+        return "; ".join(f"{key}: {self._value(value)}" for key, value in record.items()) or "-"
