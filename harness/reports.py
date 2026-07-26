@@ -101,7 +101,7 @@ class ReportExporter:
         self._section(lines, "\u6700\u7ec8\u7ed3\u8bba")
         summary = ""
         for action in report.get("action_trace", []):
-            if not isinstance(action, Mapping) or action.get("tool") != "finish":
+            if not isinstance(action, Mapping) or self._action_name(action) != "finish":
                 continue
             args = self._action_args(action)
             if isinstance(args, Mapping):
@@ -116,19 +116,20 @@ class ReportExporter:
         lines.append("| \u6587\u4ef6 | \u7c7b\u578b | \u9009\u62e9\u539f\u56e0 | \u8bc4\u5206 |")
         lines.append("| --- | --- | --- | --- |")
         rendered = False
-        for item in context:
-            if isinstance(item, Mapping):
-                if self._is_absolute_path(item.get("file")):
+        for package in context:
+            items = package.get("items", []) if isinstance(package, Mapping) else [package]
+            for item in items:
+                if not isinstance(item, Mapping):
+                    continue
+                metadata = item.get("metadata") if isinstance(item.get("metadata"), Mapping) else {}
+                path = item.get("source_path") or item.get("file")
+                if self._is_absolute_path(path):
                     continue
                 lines.append("| {} | {} | {} | {} |".format(
-                    self._value(item.get("file")), self._value(item.get("type")),
-                    self._value(item.get("reason")), self._value(item.get("score")),
+                    self._value(path), self._value(item.get("kind") or item.get("type")),
+                    self._value(item.get("summary") or item.get("reason")),
+                    self._value(metadata.get("score") or item.get("score")),
                 ))
-                rendered = True
-            else:
-                if self._is_absolute_path(item):
-                    continue
-                lines.append(f"| {self._value(item)} | - | - | - |")
                 rendered = True
         if not rendered:
             lines.append("| - | - | - | - |")
@@ -141,7 +142,7 @@ class ReportExporter:
             if not isinstance(action, Mapping):
                 lines.append(f"- {self._value(action)}")
                 continue
-            tool = self._value(action.get("tool"))
+            tool = self._action_name(action)
             args = self._action_args(action)
             path = action.get("path") or (args.get("path") if isinstance(args, Mapping) else None)
             if tool == "read_file" and path:
@@ -191,13 +192,17 @@ class ReportExporter:
 
     @staticmethod
     def _action_args(action: Mapping[str, Any]) -> Any:
-        args = action.get("args")
+        args = action.get("args") if "args" in action else action.get("args_json")
         if not isinstance(args, str):
             return args
         try:
             return json.loads(args)
         except json.JSONDecodeError:
             return args
+
+    @staticmethod
+    def _action_name(action: Mapping[str, Any]) -> str:
+        return str(action.get("action_type") or action.get("tool") or "-")
 
     @staticmethod
     def _is_absolute_path(value: Any) -> bool:

@@ -244,6 +244,25 @@ def test_report_export_preserves_run_sections():
         assert section.replace("_", " ").title() in markdown
 
 
+def test_report_export_reads_service_payload_field_names():
+    report = {
+        "selected_context": [{"items": [{
+            "source_path": "pyproject.toml", "kind": "project_convention",
+            "summary": "\u9879\u76ee\u914d\u7f6e", "metadata": {"score": 17},
+        }]}],
+        "action_trace": [
+            {"action_type": "read_file", "args_json": '{"path": "pyproject.toml"}'},
+            {"action_type": "finish", "args_json": '{"summary": "\u4f9d\u8d56\u603b\u7ed3\u5b8c\u6210"}'},
+        ],
+    }
+
+    markdown = ReportExporter(report).to_markdown()
+
+    assert "\u4f9d\u8d56\u603b\u7ed3\u5b8c\u6210" in markdown
+    assert "\u8bfb\u53d6\u6587\u4ef6: pyproject.toml" in markdown
+    assert "| pyproject.toml | project_convention | \u9879\u76ee\u914d\u7f6e | 17 |" in markdown
+
+
 def test_report_export_renders_readable_run_sections():
     report = {
         "task_request": "Summarize the report export",
