@@ -294,13 +294,17 @@ def _render_sidebar_tasks(tasks: list[dict[str, Any]], runs: list[dict[str, Any]
     by_task = {run.get("task_id"): run for run in runs}
     if not tasks:
         return '<p class="empty">还没有任务。</p>'
-    return "".join(
-        f"""<article class="task-item">
-  <span class="badge">{escape(str((by_task.get(task.get("id")) or {}).get("status") or task.get("status") or "pending"))}</span>
-  <h5 class="task-item-title">{escape(str(task.get("title") or "Untitled task"))}</h5>
-</article>"""
-        for task in tasks
-    )
+    items = []
+    for task in tasks:
+        run = by_task.get(task.get("id"))
+        status = escape(str((run or {}).get("status") or task.get("status") or "pending"))
+        title = escape(str(task.get("title") or "Untitled task"))
+        content = f'<span class="badge">{status}</span><h5 class="task-item-title">{title}</h5>'
+        if run:
+            items.append(f'<a class="task-item" href="/ui/runs/{escape(str(run.get("id")))}">{content}</a>')
+        else:
+            items.append(f'<article class="task-item">{content}</article>')
+    return "".join(items)
 
 
 def _render_current_run(
@@ -562,7 +566,8 @@ def _style() -> str:
     .repo-title { margin: 0; font-size: 18px; }
     .repo-path, .current-repo-path, .panel-note, .section-summary, .context-reason, .item-meta, .empty, .task-status-note { color: var(--muted); }
     .repo-path, .current-repo-path, .excerpt, pre { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
-    .task-item { border-top: 1px solid var(--line); padding: 12px 0; }
+    .task-item { display: block; border-top: 1px solid var(--line); padding: 12px 0; color: inherit; text-decoration: none; }
+    a.task-item:hover { background: rgba(21,29,26,.04); }
     .task-item-title { margin: 7px 0 0; font-size: 15px; }
     .main-view, .detail-shell { padding: 28px; }
     .section-head { margin-bottom: 18px; }

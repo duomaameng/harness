@@ -426,6 +426,24 @@ def test_webui_root_renders_integrated_workbench_with_existing_runs(tmp_path):
     assert str(repo) in html
 
 
+def test_webui_sidebar_task_links_to_its_run_detail(tmp_path):
+    repo = tmp_path / "webui-sidebar-task-link-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    api = create_app(service)
+    task = service.create_task("Reopen this task", "Open its prior run from the sidebar")
+    run = service.run_task(task.id, max_rounds=1)
+
+    html = _endpoint(api, "/", "GET")().body.decode("utf-8")
+
+    assert (
+        f'<a class="task-item" href="/ui/runs/{run.id}">'
+        '<span class="badge">succeeded</span>'
+        '<h5 class="task-item-title">Reopen this task</h5>'
+        "</a>"
+    ) in html
+
+
 def test_webui_create_and_run_endpoint_returns_detail_url(tmp_path):
     repo = tmp_path / "webui-create-run-repo"
     repo.mkdir()
