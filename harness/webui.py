@@ -495,7 +495,85 @@ def _render_approvals(approvals: list[dict[str, Any]]) -> str:
 
 
 def _render_report(report: str) -> str:
-    return _panel("Report", "报告", f"<pre>{escape(report)}</pre>")
+    return _panel("Report", "报告", f'<div class="report-markdown">{_render_markdown(report)}</div>')
+
+
+def _render_markdown(markdown: str) -> str:
+    lines = markdown.splitlines()
+    rendered: list[str] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if not line:
+            index += 1
+            continue
+        if line == "<details>":
+            rendered.append("<details>")
+            index += 1
+            continue
+        if line == "</details>":
+            rendered.append("</details>")
+            index += 1
+            continue
+        if line.startswith("<summary>") and line.endswith("</summary>"):
+            summary = line.removeprefix("<summary>").removesuffix("</summary>")
+            rendered.append(f"<summary>{escape(summary)}</summary>")
+            index += 1
+            continue
+        if line.startswith("```"):
+            language = line[3:].strip()
+            index += 1
+            code: list[str] = []
+            while index < len(lines) and not lines[index].startswith("```"):
+                code.append(lines[index])
+                index += 1
+            if index < len(lines):
+                index += 1
+            class_name = f' class="language-{escape(language)}"' if language else ""
+            rendered.append(f"<pre><code{class_name}>{escape(chr(10).join(code))}</code></pre>")
+            continue
+        if (
+            line.startswith("|")
+            and index + 1 < len(lines)
+            and _is_markdown_table_separator(lines[index + 1])
+        ):
+            table_lines = [line]
+            index += 2
+            while index < len(lines) and lines[index].startswith("|"):
+                table_lines.append(lines[index])
+                index += 1
+            rows = [_markdown_table_row(row) for row in table_lines]
+            header = "".join(f"<th>{escape(cell)}</th>" for cell in rows[0])
+            body = "".join(
+                "<tr>" + "".join(f"<td>{escape(cell)}</td>" for cell in row) + "</tr>"
+                for row in rows[1:]
+            )
+            rendered.append(f"<table><thead><tr>{header}</tr></thead><tbody>{body}</tbody></table>")
+            continue
+        if line.startswith("#") and len(line) > 1 and line.lstrip("#").startswith(" "):
+            level = min(len(line) - len(line.lstrip("#")), 6)
+            rendered.append(f"<h{level}>{escape(line[level:].strip())}</h{level}>")
+            index += 1
+            continue
+        if line.startswith("- "):
+            items: list[str] = []
+            while index < len(lines) and lines[index].startswith("- "):
+                items.append(f"<li>{escape(lines[index][2:])}</li>")
+                index += 1
+            rendered.append(f"<ul>{''.join(items)}</ul>")
+            continue
+        rendered.append(f"<p>{escape(line)}</p>")
+        index += 1
+    return "".join(rendered)
+
+
+def _markdown_table_row(line: str) -> list[str]:
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def _is_markdown_table_separator(line: str) -> bool:
+    cells = _markdown_table_row(line)
+    return bool(cells) and all(cell and set(cell) <= {"-", ":"} for cell in cells)
 
 
 def _panel(title: str, note: str, body: str) -> str:
