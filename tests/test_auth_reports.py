@@ -240,8 +240,12 @@ def test_report_export_preserves_run_sections():
     markdown = ReportExporter(report).to_markdown()
 
     assert payload == report
-    for section in report:
-        assert section.replace("_", " ").title() in markdown
+    assert "# 运行报告" in markdown
+    for section in (
+        "运行概览", "最终结论", "已选上下文", "动作轨迹", "验证与反馈",
+        "审批记录", "变更文件", "审计原始数据",
+    ):
+        assert f"## {section}" in markdown
 
 
 def test_report_export_reads_service_payload_field_names():
@@ -296,7 +300,7 @@ def test_report_export_renders_readable_run_sections():
         ],
         "action_trace": [
             {"tool": "read_file", "path": "pyproject.toml"},
-            {"tool": "finish", "excerpt": "Report complete"},
+            {"tool": "finish", "excerpt": "报告汇总完成"},
         ],
         "tool_results": [{"tool": "read_file", "result": "[project]"}],
         "changed_files": ["harness/reports.py"],
@@ -316,22 +320,22 @@ def test_report_export_renders_readable_run_sections():
 
     markdown = ReportExporter(report).to_markdown()
 
-    assert "## 杩愯姒傝" in markdown
-    assert "## 鏈€缁堢粨璁篳" in markdown
-    assert "椤圭洰渚濊禆宸叉€荤粨銆俙" in markdown
-    assert "## 宸查€変笂涓嬫枃" in markdown
-    assert "| 鏂囦欢 | 绫诲瀷 | 閫夋嫨鍘熷洜 | 璇勫垎 |" in markdown
+    assert "## 运行概览" in markdown
+    assert "## 最终结论" in markdown
+    assert "报告汇总完成" in markdown
+    assert "## 已选上下文" in markdown
+    assert "| 文件 | 类型 | 选择原因 | 评分 |" in markdown
     assert "pyproject.toml" in markdown
-    assert "## 鍔ㄤ綔杞ㄨ迹" in markdown
-    assert "璇诲彇鏂囦欢锛歚" in markdown
+    assert "## 动作轨迹" in markdown
+    assert "读取文件: " in markdown
     assert "pyproject.toml" in markdown
-    assert "## 瀹¤鍘熷鏁版嵁" in markdown
-    assert "```json" not in markdown.split("## 瀹¤鍘熷鏁版嵁", 1)[0]
-    context_section = markdown.split("## \u5bb8\u67e5\u20ac\u5909\u7b02\u6d93\u5b2b\u6783", 1)[0]
+    assert "## 审计原始数据" in markdown
+    assert "```json" not in markdown.split("## 审计原始数据", 1)[0]
+    context_section = markdown.split("## 审计原始数据", 1)[0]
     assert "C:/workspace/project/private.py" not in context_section
     assert "C:/workspace/project/scalar-private.py" not in context_section
     empty_context = ReportExporter({"selected_context": ["C:/workspace/project/only-private.py"]}).to_markdown()
-    empty_context_section = empty_context.split("## \u5bb8\u67e5\u20ac\u5909\u7b02\u6d93\u5b2b\u6783", 1)[0]
+    empty_context_section = empty_context.split("## 审计原始数据", 1)[0]
     assert "| - | - | - | - |" in empty_context_section
     assert "- state: verified; reason: The output is easy to scan.; result: passed" in markdown
     assert "- status: approved; reason: Ready; result: published" in markdown

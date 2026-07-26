@@ -588,9 +588,9 @@ def test_report_endpoint_and_webui_render_readable_completed_run_report(tmp_path
     html = _endpoint(api, "/ui/runs/{run_id}", "GET")(run_id).body.decode("utf-8")
 
     for consumer in (report, html):
-        assert "杩愯姒傝" in consumer
-        assert "鏈€缁堢粨璁篳" in consumer
-        assert "```json" not in consumer.split("瀹¤鍘熷鏁版嵁", 1)[0]
+        assert "运行概览" in consumer
+        assert "最终结论" in consumer
+        assert "```json" not in consumer.split("审计原始数据", 1)[0]
 
 
 def test_webui_run_detail_renders_report_markdown_as_semantic_html(tmp_path):
@@ -606,7 +606,7 @@ def test_webui_run_detail_renders_report_markdown_as_semantic_html(tmp_path):
 
     html = _endpoint(api, "/ui/runs/{run_id}", "GET")(run_id).body.decode("utf-8")
 
-    assert "<h1>Harness Run Report</h1>" in html
+    assert "<h1>运行报告</h1>" in html
     assert "<table>" in html
     assert "<td>---</td>" not in html
     assert "<ul><li>" in html
@@ -614,7 +614,7 @@ def test_webui_run_detail_renders_report_markdown_as_semantic_html(tmp_path):
     assert "<img src=x onerror=1>" not in html
     assert "<details>" in html
     assert "<summary>" in html
-    assert "<pre># Harness Run Report" not in html
+    assert "<pre># 运行报告" not in html
 
 
 def test_webui_run_detail_explains_invalid_model_action_as_no_usable_result(tmp_path):
