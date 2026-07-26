@@ -273,6 +273,7 @@ def test_report_export_renders_readable_run_sections():
                 "reason": "absolute repository path",
                 "score": 0.5,
             },
+            "C:/workspace/project/scalar-private.py",
         ],
         "action_trace": [
             {"tool": "read_file", "path": "pyproject.toml"},
@@ -309,6 +310,10 @@ def test_report_export_renders_readable_run_sections():
     assert "```json" not in markdown.split("## 瀹¤鍘熷鏁版嵁", 1)[0]
     context_section = markdown.split("## \u5bb8\u67e5\u20ac\u5909\u7b02\u6d93\u5b2b\u6783", 1)[0]
     assert "C:/workspace/project/private.py" not in context_section
+    assert "C:/workspace/project/scalar-private.py" not in context_section
+    empty_context = ReportExporter({"selected_context": ["C:/workspace/project/only-private.py"]}).to_markdown()
+    empty_context_section = empty_context.split("## \u5bb8\u67e5\u20ac\u5909\u7b02\u6d93\u5b2b\u6783", 1)[0]
+    assert "| - | - | - | - |" in empty_context_section
     assert "- state: verified; reason: The output is easy to scan.; result: passed" in markdown
     assert "- status: approved; reason: Ready; result: published" in markdown
     assert json.loads(ReportExporter(report).to_json()) == report

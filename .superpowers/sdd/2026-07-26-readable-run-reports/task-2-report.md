@@ -13,6 +13,21 @@ Verification:
 
 Result: `1 passed in 0.05s`.
 
+## Fix round 2
+
+Root cause: only mapping context rows checked their `file` value for an
+absolute path, and the empty-row condition examined the unfiltered input.
+
+Changes: scalar absolute-path context values are omitted and the context table
+now emits its empty row when every source value is filtered. Focused assertions
+cover scalar filtering and the all-filtered empty result.
+
+Verification:
+
+`python -m pytest tests/test_auth_reports.py::test_report_export_renders_readable_run_sections -q -p no:cacheprovider`
+
+Result: `1 passed in 0.05s`.
+
 ## Fix round 1
 
 Root cause: context rows used the stored `file` value directly, and feedback

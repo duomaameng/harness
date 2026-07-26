@@ -115,6 +115,7 @@ class ReportExporter:
         context = report.get("selected_context", [])
         lines.append("| \u93c2\u56e6\u6b22 | \u7eeb\u8bf2\u7037 | \u95ab\u590b\u5ae8\u9358\u71b7\u6d1c | \u7487\u52eb\u578e |")
         lines.append("| --- | --- | --- | --- |")
+        rendered = False
         for item in context:
             if isinstance(item, Mapping):
                 if self._is_absolute_path(item.get("file")):
@@ -123,9 +124,13 @@ class ReportExporter:
                     self._value(item.get("file")), self._value(item.get("type")),
                     self._value(item.get("reason")), self._value(item.get("score")),
                 ))
+                rendered = True
             else:
+                if self._is_absolute_path(item):
+                    continue
                 lines.append(f"| {self._value(item)} | - | - | - |")
-        if not context:
+                rendered = True
+        if not rendered:
             lines.append("| - | - | - | - |")
         lines.append("")
 
