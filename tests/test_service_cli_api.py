@@ -12,6 +12,44 @@ from harness.llm import MockLLM, OpenAICompatibleClient
 from harness.service import CoreService
 
 
+def test_repository_registry_persists_registration_selection_rename_and_safe_removal(tmp_path):
+    from harness.repository_registry import RepositoryRegistry
+
+    config_dir = tmp_path / "application-config"
+    first_repository_path = tmp_path / "first-repository"
+    second_repository_path = tmp_path / "second-repository"
+    first_repository_path.mkdir()
+    second_repository_path.mkdir()
+
+    registry = RepositoryRegistry(config_dir)
+    first = registry.register(first_repository_path)
+    second = registry.register(second_repository_path)
+
+    assert first == {
+        "id": first["id"],
+        "path": str(first_repository_path.resolve()),
+        "name": "first-repository",
+    }
+    assert registry.current() == second
+    assert registry.select(first["id"]) == first
+
+    renamed = registry.rename(first["id"], "Primary repository")
+
+    assert renamed == {
+        "id": first["id"],
+        "path": str(first_repository_path.resolve()),
+        "name": "Primary repository",
+    }
+    persisted_registry = RepositoryRegistry(config_dir)
+    assert persisted_registry.list() == [renamed, second]
+    assert persisted_registry.current() == renamed
+
+    assert persisted_registry.remove(first["id"]) == renamed
+    assert first_repository_path.is_dir()
+    assert persisted_registry.current() == second
+    assert RepositoryRegistry(config_dir).list() == [second]
+
+
 def _endpoint(app, path, method):
     for route in app.routes:
         if getattr(route, "path", None) == path and method in getattr(route, "methods", set()):
