@@ -349,14 +349,21 @@ def _render_repository_sidebar(
     for repository in repositories:
         repository_id = escape(repository["id"])
         active = repository["id"] == current_repository_id
+        repository_summary = f"""<div class="repo-title-row"><h4 class="repo-title">{escape(repository['name'])}</h4><span class="badge">{'current' if active else 'available'}</span></div>
+  <p class="repo-path">{escape(repository['path'])}</p>"""
+        selection = (
+            f'<div class="repo-head">{repository_summary}</div>'
+            if active
+            else f'''<form class="repo-select-form" method="post" action="/ui/repositories/{repository_id}/select">
+  <button class="repo-select-card" type="submit">{repository_summary}</button>
+</form>'''
+        )
         controls = f"""
-<form method="post" action="/ui/repositories/{repository_id}/select"><button class="btn secondary repo-action" type="submit">Select</button></form>
 <form class="repository-json-form" method="post" action="/ui/repositories/{repository_id}/rename"><input class="input" name="name" value="{escape(repository['name'])}" required><button class="btn secondary repo-action" type="submit">Rename</button></form>
 <form method="post" action="/ui/repositories/{repository_id}/delete"><button class="btn secondary repo-action" type="submit">Delete</button></form>"""
         task_list = _render_sidebar_tasks(tasks, runs) if active else ""
         groups.append(f"""<section class="repo-group{' active' if active else ''}" aria-label="repository">
-  <div class="repo-head"><div class="repo-title-row"><h4 class="repo-title">{escape(repository['name'])}</h4><span class="badge">{'current' if active else 'available'}</span></div>
-  <p class="repo-path">{escape(repository['path'])}</p>{controls}</div>{task_list}</section>""")
+  {selection}{controls}{task_list}</section>""")
     empty_prompt = "" if has_current_repository else '<p class="empty">Add a repository to create or run tasks.</p>'
     return f"""<aside class="task-sidebar">
   <div class="sidebar-head"><p class="eyebrow">Repositories</p></div>
@@ -716,6 +723,10 @@ def _style() -> str:
     .repo-group, .panel, .run-hero { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
     .repo-group { padding: 16px; }
     .repo-group.active { box-shadow: inset 4px 0 0 var(--ink); }
+    .repo-select-form { margin: 0; }
+    .repo-select-card { display: block; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; font: inherit; }
+    .repo-select-card:hover .repo-title { text-decoration: underline; }
+    .repo-select-card:focus-visible { outline: 2px solid #243f63; outline-offset: 4px; border-radius: 4px; }
     .repo-title { margin: 0; font-size: 18px; }
     .repo-path, .current-repo-path, .panel-note, .section-summary, .context-reason, .item-meta, .empty, .task-status-note { color: var(--muted); }
     .repo-path, .current-repo-path, .excerpt, pre { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }

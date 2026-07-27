@@ -117,6 +117,30 @@ def test_webui_repository_switches_task_service_and_isolates_tasks(tmp_path):
     assert task["task_id"]
 
 
+def test_webui_repository_card_selects_without_a_select_button(tmp_path):
+    from harness.repository_registry import RepositoryRegistry
+
+    first_repository_path = tmp_path / "first-repository"
+    second_repository_path = tmp_path / "second-repository"
+    first_repository_path.mkdir()
+    second_repository_path.mkdir()
+    registry = RepositoryRegistry(tmp_path / "application-config")
+    first = registry.register(first_repository_path)
+    second = registry.register(second_repository_path)
+    api = create_app(CoreService(second_repository_path, llm=MockLLM([])), registry=registry)
+
+    html = _endpoint(api, "/", "GET")().body.decode("utf-8")
+
+    assert ">Select</button>" not in html
+    assert (
+        f'<form class="repo-select-form" method="post" '
+        f'action="/ui/repositories/{first["id"]}/select">'
+    ) in html
+    assert f'action="/ui/repositories/{second["id"]}/select"' not in html
+    assert f'action="/ui/repositories/{first["id"]}/rename"' in html
+    assert f'action="/ui/repositories/{first["id"]}/delete"' in html
+
+
 def test_webui_repository_rename_and_delete_routes_update_registry(tmp_path):
     from harness.repository_registry import RepositoryRegistry
 
