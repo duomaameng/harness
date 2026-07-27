@@ -23,3 +23,21 @@ No refactor was necessary after the focused test passed.
 ## Concerns
 
 - The initial PATH-based test attempts were blocked; the supplied runtime completed the GREEN verification.
+
+## Fix round 1
+
+### RED
+
+Command: `C:\\Users\\duoma\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m pytest tests/test_service_cli_api.py -q -k repository_registry`
+
+Result: `1 failed, 1 passed, 33 deselected`; the regression test raised `KeyError: 'current_repository_id'` from `current()` for syntactically valid but incomplete registry JSON.
+
+### GREEN
+
+Command: `C:\\Users\\duoma\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe -m pytest tests/test_service_cli_api.py -q -k repository_registry`
+
+Result: `2 passed, 33 deselected in 0.97s`.
+
+Fix commit: `60ba49d fix: validate repository registry schema`.
+
+Concerns: no full suite was run, per task scope.
