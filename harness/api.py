@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -19,10 +20,13 @@ def create_app(
     registry: RepositoryRegistry | None = None,
 ) -> FastAPI:
     core = service or CoreService(repo_path)
-    if registry is not None and not any(
-        item["path"] == str(core.repo_path.resolve()) for item in registry.list()
+    active_registry = registry or RepositoryRegistry(
+        Path(os.environ.get("APPDATA", Path.home() / ".config")) / "harness"
+    )
+    if not any(
+        item["path"] == str(core.repo_path.resolve()) for item in active_registry.list()
     ):
-        registry.register(core.repo_path)
+        active_registry.register(core.repo_path)
     app = FastAPI(title="Context-Aware Harness API")
 
     @app.post("/tasks")
@@ -90,9 +94,10 @@ def create_app(
         return _wrap(lambda: {"content": core.export_report(run_id, fmt=format)})
 
     app.state.core_service = core
+    app.state.repository_registry = active_registry
     from harness.webui import include_webui
 
-    include_webui(app, core, registry=registry)
+    include_webui(app, core, registry=active_registry)
     return app
 
 

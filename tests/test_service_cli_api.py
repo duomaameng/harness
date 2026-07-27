@@ -77,6 +77,22 @@ def _endpoint(app, path, method):
     raise AssertionError(f"missing route {method} {path}")
 
 
+def test_default_app_registers_its_repository_and_can_select_it(tmp_path, monkeypatch):
+    repo = tmp_path / "default-repository"
+    repo.mkdir()
+    monkeypatch.setenv("APPDATA", str(tmp_path / "application-config"))
+
+    api = create_app(CoreService(repo, llm=MockLLM([])))
+
+    repository = api.state.repository_registry.current()
+    response = _endpoint(api, "/ui/repositories/{repository_id}/select", "POST")(
+        repository["id"]
+    )
+
+    assert repository["path"] == str(repo.resolve())
+    assert response.status_code == 303
+
+
 def test_webui_repository_switches_task_service_and_isolates_tasks(tmp_path):
     from harness.repository_registry import RepositoryRegistry
 
