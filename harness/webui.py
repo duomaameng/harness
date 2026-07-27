@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from harness.domain import ApprovalStatus
+from harness.repository_registry import RepositoryRegistry
 from harness.service import CoreService
 
 
@@ -19,6 +20,7 @@ def include_webui(
     service: CoreService | None = None,
     *,
     repo_path: str | Path = ".",
+    registry: RepositoryRegistry | None = None,
 ) -> FastAPI:
     """Attach the prototype-shaped workbench, run detail, and approval routes."""
 
@@ -27,34 +29,84 @@ def include_webui(
 
     core = service or getattr(app.state, "core_service", None) or CoreService(repo_path)
     app.state.core_service = core
+    services = {str(core.repo_path.resolve()): core}
     app.state.webui_included = True
+
+    def current_core() -> CoreService:
+        if registry is None:
+            return core
+        repository = registry.current()
+        if repository is None:
+            raise HTTPException(status_code=400, detail="Select or add a repository first")
+        return services.setdefault(repository["path"], CoreService(repository["path"]))
+
+    def required_registry() -> RepositoryRegistry:
+        if registry is None:
+            raise HTTPException(status_code=400, detail="Repository registry is not configured")
+        return registry
 
     @app.get("/", response_class=HTMLResponse)
     def workbench() -> HTMLResponse:
-        return HTMLResponse(_render_workbench(core))
+        active = registry.current() if registry is not None else None
+        return HTMLResponse(
+            _render_workbench(
+                current_core() if registry is None or active is not None else None,
+                repositories=registry.list() if registry is not None else None,
+                current_repository_id=active["id"] if active is not None else None,
+            )
+        )
 
     @app.get("/ui", response_class=HTMLResponse)
     def workbench_alias() -> HTMLResponse:
-        return HTMLResponse(_render_workbench(core))
+        return workbench()
+
+    @app.post("/ui/repositories")
+    def register_repository(payload: dict[str, Any]) -> dict[str, str]:
+        try:
+            return required_registry().register(str(payload.get("path") or ""))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/ui/repositories/{repository_id}/select")
+    def select_repository(repository_id: str) -> RedirectResponse:
+        try:
+            required_registry().select(repository_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return RedirectResponse("/", status_code=303)
+
+    @app.post("/ui/repositories/{repository_id}/rename")
+    def rename_repository(repository_id: str, payload: dict[str, Any]) -> dict[str, str]:
+        try:
+            return required_registry().rename(repository_id, str(payload.get("name") or ""))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/ui/repositories/{repository_id}/delete")
+    def delete_repository(repository_id: str) -> RedirectResponse:
+        if required_registry().remove(repository_id) is None:
+            raise HTTPException(status_code=404, detail=f"Unknown repository id: {repository_id}")
+        return RedirectResponse("/", status_code=303)
 
     @app.post("/ui/tasks")
     def create_task(payload: dict[str, Any]) -> dict[str, Any]:
-        task = core.create_task(_required_title(payload), str(payload.get("description") or ""))
+        task = current_core().create_task(_required_title(payload), str(payload.get("description") or ""))
         return {"task_id": task.id, "detail_url": None}
 
     @app.post("/ui/tasks/run")
     def create_and_run_task(payload: dict[str, Any]) -> dict[str, Any]:
-        task = core.create_task(_required_title(payload), str(payload.get("description") or ""))
-        run = core.run_task(task.id, max_rounds=_max_rounds(payload))
+        active_core = current_core()
+        task = active_core.create_task(_required_title(payload), str(payload.get("description") or ""))
+        run = active_core.run_task(task.id, max_rounds=_max_rounds(payload))
         return {"task_id": task.id, "run_id": run.id, "detail_url": f"/ui/runs/{run.id}"}
 
     @app.get("/ui/runs/{run_id}", response_class=HTMLResponse)
     def run_detail(run_id: str) -> HTMLResponse:
-        return HTMLResponse(_render_run_detail(core, run_id))
+        return HTMLResponse(_render_run_detail(current_core(), run_id))
 
     @app.post("/ui/approvals/{approval_id}/approve")
     def approve(approval_id: str) -> RedirectResponse:
-        approval = core.decide_approval(
+        approval = current_core().decide_approval(
             approval_id,
             ApprovalStatus.APPROVED.value,
             decided_by="webui",
@@ -63,7 +115,7 @@ def include_webui(
 
     @app.post("/ui/approvals/{approval_id}/reject")
     def reject(approval_id: str) -> RedirectResponse:
-        approval = core.decide_approval(
+        approval = current_core().decide_approval(
             approval_id,
             ApprovalStatus.REJECTED.value,
             decided_by="webui",
@@ -90,9 +142,14 @@ def _max_rounds(payload: dict[str, Any]) -> int:
     return max_rounds
 
 
-def _render_workbench(core: CoreService) -> str:
-    tasks = core.list_tasks()
-    runs = core.list_runs()
+def _render_workbench(
+    core: CoreService | None,
+    *,
+    repositories: list[dict[str, str]] | None = None,
+    current_repository_id: str | None = None,
+) -> str:
+    tasks = core.list_tasks() if core is not None else []
+    runs = core.list_runs() if core is not None else []
     latest_run = runs[0] if runs else None
     pending_count = sum(1 for run in runs if run.get("status") == "waiting_approval")
     detail_href = f"/ui/runs/{latest_run['id']}" if latest_run else "#view-detail"
@@ -104,6 +161,14 @@ def _render_workbench(core: CoreService) -> str:
         context_count = sum(len(pkg.get("items", [])) for pkg in core.list_context(run_id))
         action_count = len(core.list_actions(run_id))
         feedback_count = len(core.list_feedback(run_id))
+
+    current_name = core.repo_path.name if core is not None else "No repository selected"
+    current_path = str(core.repo_path) if core is not None else "Add a repository to begin."
+    sidebar = _render_repository_sidebar(
+        repositories, current_repository_id, tasks, runs, core is not None
+    ) if repositories is not None else _render_repository_sidebar(
+        [{"id": "default", "name": current_name, "path": current_path}], "default", tasks, runs, True
+    )
 
     return f"""<!doctype html>
 <html lang="zh-CN">
@@ -131,24 +196,7 @@ def _render_workbench(core: CoreService) -> str:
     <input class="view-toggle" type="radio" name="main-panel" id="view-workbench" checked>
     <input class="view-toggle" type="radio" name="main-panel" id="view-detail">
     <div class="dashboard-shell">
-      <aside class="task-sidebar">
-        <div class="sidebar-head">
-          <p class="eyebrow">Repositories</p>
-          <button class="btn sidebar-action" type="button" disabled title="当前后端只支持单仓库">+ 添加仓库</button>
-        </div>
-        <div class="repo-list">
-          <section class="repo-group active" aria-labelledby="repo-current">
-            <div class="repo-head">
-              <div class="repo-title-row">
-                <h4 class="repo-title" id="repo-current">{escape(core.repo_path.name)}</h4>
-                <button class="btn secondary repo-action" type="button" disabled title="当前后端只支持单仓库">+</button>
-              </div>
-              <p class="repo-path">{escape(str(core.repo_path))}</p>
-            </div>
-            {_render_sidebar_tasks(tasks, runs)}
-          </section>
-        </div>
-      </aside>
+      {sidebar}
       <section class="main-view workbench-view">
         <div class="section-head">
           <div>
@@ -167,8 +215,8 @@ def _render_workbench(core: CoreService) -> str:
           <div class="panel-body">
             <div class="current-repo" aria-label="当前仓库">
               <span class="current-repo-label">当前仓库</span>
-              <div class="current-repo-name">{escape(core.repo_path.name)}</div>
-              <div class="current-repo-path">{escape(str(core.repo_path))}</div>
+              <div class="current-repo-name">{escape(current_name)}</div>
+              <div class="current-repo-path">{escape(current_path)}</div>
             </div>
             <form class="task-form" id="task-form">
               <label>标题<input class="input" name="title" required placeholder="补充计算器边界用例测试"></label>
@@ -288,6 +336,33 @@ def _render_run_detail(core: CoreService, run_id: str) -> str:
   </main>
 </body>
 </html>"""
+
+
+def _render_repository_sidebar(
+    repositories: list[dict[str, str]],
+    current_repository_id: str | None,
+    tasks: list[dict[str, Any]],
+    runs: list[dict[str, Any]],
+    has_current_repository: bool,
+) -> str:
+    groups: list[str] = []
+    for repository in repositories:
+        repository_id = escape(repository["id"])
+        active = repository["id"] == current_repository_id
+        controls = f"""
+<form method="post" action="/ui/repositories/{repository_id}/select"><button class="btn secondary repo-action" type="submit">Select</button></form>
+<form class="repository-json-form" method="post" action="/ui/repositories/{repository_id}/rename"><input class="input" name="name" value="{escape(repository['name'])}" required><button class="btn secondary repo-action" type="submit">Rename</button></form>
+<form method="post" action="/ui/repositories/{repository_id}/delete"><button class="btn secondary repo-action" type="submit">Delete</button></form>"""
+        task_list = _render_sidebar_tasks(tasks, runs) if active else ""
+        groups.append(f"""<section class="repo-group{' active' if active else ''}" aria-label="repository">
+  <div class="repo-head"><div class="repo-title-row"><h4 class="repo-title">{escape(repository['name'])}</h4><span class="badge">{'current' if active else 'available'}</span></div>
+  <p class="repo-path">{escape(repository['path'])}</p>{controls}</div>{task_list}</section>""")
+    empty_prompt = "" if has_current_repository else '<p class="empty">Add a repository to create or run tasks.</p>'
+    return f"""<aside class="task-sidebar">
+  <div class="sidebar-head"><p class="eyebrow">Repositories</p></div>
+  <form class="task-form repository-json-form" method="post" action="/ui/repositories"><label>Repository path<input class="input" name="path" required></label><button class="btn sidebar-action" type="submit">+ Add repository</button></form>
+  {empty_prompt}<div class="repo-list">{''.join(groups)}</div>
+</aside>"""
 
 
 def _render_sidebar_tasks(tasks: list[dict[str, Any]], runs: list[dict[str, Any]]) -> str:
@@ -745,5 +820,16 @@ def _script() -> str:
       } catch (error) {
         message.textContent = "提交失败：" + error.message;
       }
+    });
+    document.querySelectorAll(".repository-json-form").forEach((repositoryForm) => {
+      repositoryForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const response = await fetch(repositoryForm.action, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(Object.fromEntries(new FormData(repositoryForm).entries())),
+        });
+        if (response.ok) window.location.reload();
+      });
     });
   </script>"""

@@ -77,6 +77,52 @@ def _endpoint(app, path, method):
     raise AssertionError(f"missing route {method} {path}")
 
 
+def test_webui_repository_switches_task_service_and_isolates_tasks(tmp_path):
+    from harness.repository_registry import RepositoryRegistry
+
+    config_dir = tmp_path / "application-config"
+    first_repository_path = tmp_path / "first-repository"
+    second_repository_path = tmp_path / "second-repository"
+    first_repository_path.mkdir()
+    second_repository_path.mkdir()
+    registry = RepositoryRegistry(config_dir)
+    first = registry.register(first_repository_path)
+    service = CoreService(first_repository_path, llm=MockLLM([]))
+    api = create_app(service, registry=registry)
+    second = _endpoint(api, "/ui/repositories", "POST")({"path": str(second_repository_path)})
+
+    task = _endpoint(api, "/ui/tasks", "POST")({"title": "Only in second"})
+    html = _endpoint(api, "/", "GET")().body.decode("utf-8")
+
+    assert registry.current() == second
+    assert second["name"] in html
+    assert "Only in second" in html
+    assert CoreService(first["path"]).list_tasks() == []
+    assert task["task_id"]
+
+
+def test_webui_repository_rename_and_delete_routes_update_registry(tmp_path):
+    from harness.repository_registry import RepositoryRegistry
+
+    repository_path = tmp_path / "repository"
+    repository_path.mkdir()
+    registry = RepositoryRegistry(tmp_path / "application-config")
+    repository = registry.register(repository_path)
+    api = create_app(CoreService(repository_path, llm=MockLLM([])), registry=registry)
+
+    renamed = _endpoint(api, "/ui/repositories/{repository_id}/rename", "POST")(
+        repository["id"], {"name": "Renamed repository"}
+    )
+    response = _endpoint(api, "/ui/repositories/{repository_id}/delete", "POST")(
+        repository["id"]
+    )
+
+    assert renamed["name"] == "Renamed repository"
+    assert response.status_code == 303
+    assert response.headers["location"] == "/"
+    assert registry.list() == []
+
+
 def test_cli_run_with_mock_llm_creates_task_run_and_context_trace(tmp_path):
     repo = tmp_path / "sample-repo"
     repo.mkdir()
