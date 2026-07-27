@@ -25,3 +25,15 @@ the core repository, stores the registry on application state, and passes the
 same instance to the WebUI.
 
 The focused command above passed: `1 passed`.
+
+## Review follow-up
+
+The default-app regression now submits a real ASGI `POST` to
+`/ui/repositories/{id}/select` and asserts the un-followed response status is
+`303`. To prove the route assertion detects the original integration failure,
+the WebUI registry argument was temporarily removed: the test then failed with
+`assert 400 == 303`. Restoring the registry argument made the focused default
+and explicit-registry tests pass: `2 passed`.
+
+The explicit-registry coverage also asserts that
+`api.state.repository_registry is registry`.

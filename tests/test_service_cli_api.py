@@ -1,3 +1,4 @@
+import asyncio
 import json
 import sqlite3
 
@@ -77,6 +78,44 @@ def _endpoint(app, path, method):
     raise AssertionError(f"missing route {method} {path}")
 
 
+def _asgi_post(app, path, *, follow_redirects=False):
+    """Dispatch one ASGI HTTP request without automatically following redirects."""
+    if follow_redirects:
+        raise ValueError("This focused ASGI test client does not follow redirects")
+
+    response = {}
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        if message["type"] == "http.response.start":
+            response["status_code"] = message["status"]
+            response["headers"] = dict(message["headers"])
+
+    asyncio.run(
+        app(
+            {
+                "type": "http",
+                "asgi": {"version": "3.0", "spec_version": "2.3"},
+                "http_version": "1.1",
+                "method": "POST",
+                "scheme": "http",
+                "path": path,
+                "raw_path": path.encode(),
+                "query_string": b"",
+                "root_path": "",
+                "headers": [],
+                "client": ("testclient", 50000),
+                "server": ("testserver", 80),
+            },
+            receive,
+            send,
+        )
+    )
+    return response
+
+
 def test_default_app_registers_its_repository_and_can_select_it(tmp_path, monkeypatch):
     repo = tmp_path / "default-repository"
     repo.mkdir()
@@ -85,12 +124,13 @@ def test_default_app_registers_its_repository_and_can_select_it(tmp_path, monkey
     api = create_app(CoreService(repo, llm=MockLLM([])))
 
     repository = api.state.repository_registry.current()
-    response = _endpoint(api, "/ui/repositories/{repository_id}/select", "POST")(
-        repository["id"]
+    response = _asgi_post(
+        api, f"/ui/repositories/{repository['id']}/select", follow_redirects=False
     )
 
     assert repository["path"] == str(repo.resolve())
-    assert response.status_code == 303
+    assert response["status_code"] == 303
+    assert response["headers"][b"location"] == b"/"
 
 
 def test_webui_repository_switches_task_service_and_isolates_tasks(tmp_path):
@@ -105,6 +145,9 @@ def test_webui_repository_switches_task_service_and_isolates_tasks(tmp_path):
     first = registry.register(first_repository_path)
     service = CoreService(first_repository_path, llm=MockLLM([]))
     api = create_app(service, registry=registry)
+
+    assert api.state.repository_registry is registry
+
     second = _endpoint(api, "/ui/repositories", "POST")({"path": str(second_repository_path)})
 
     task = _endpoint(api, "/ui/tasks", "POST")({"title": "Only in second"})
