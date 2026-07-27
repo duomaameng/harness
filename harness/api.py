@@ -2,17 +2,31 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
 
 from harness.domain import ApprovalStatus
+from harness.repository_registry import RepositoryRegistry
 from harness.service import CoreService
 
 
-def create_app(service: CoreService | None = None, *, repo_path: str | Path = ".") -> FastAPI:
+def create_app(
+    service: CoreService | None = None,
+    *,
+    repo_path: str | Path = ".",
+    registry: RepositoryRegistry | None = None,
+) -> FastAPI:
     core = service or CoreService(repo_path)
+    active_registry = registry or RepositoryRegistry(
+        Path(os.environ.get("APPDATA", Path.home() / ".config")) / "harness"
+    )
+    if not any(
+        item["path"] == str(core.repo_path.resolve()) for item in active_registry.list()
+    ):
+        active_registry.register(core.repo_path)
     app = FastAPI(title="Context-Aware Harness API")
 
     @app.post("/tasks")
@@ -80,9 +94,10 @@ def create_app(service: CoreService | None = None, *, repo_path: str | Path = ".
         return _wrap(lambda: {"content": core.export_report(run_id, fmt=format)})
 
     app.state.core_service = core
+    app.state.repository_registry = active_registry
     from harness.webui import include_webui
 
-    include_webui(app, core)
+    include_webui(app, core, registry=active_registry)
     return app
 
 

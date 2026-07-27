@@ -1,3 +1,4 @@
+import asyncio
 import json
 import sqlite3
 
@@ -12,11 +13,197 @@ from harness.llm import MockLLM, OpenAICompatibleClient
 from harness.service import CoreService
 
 
+def test_repository_registry_persists_registration_selection_rename_and_safe_removal(tmp_path):
+    from harness.repository_registry import RepositoryRegistry
+
+    config_dir = tmp_path / "application-config"
+    first_repository_path = tmp_path / "first-repository"
+    second_repository_path = tmp_path / "second-repository"
+    first_repository_path.mkdir()
+    second_repository_path.mkdir()
+
+    registry = RepositoryRegistry(config_dir)
+    first = registry.register(first_repository_path)
+    second = registry.register(second_repository_path)
+
+    assert first == {
+        "id": first["id"],
+        "path": str(first_repository_path.resolve()),
+        "name": "first-repository",
+    }
+    assert registry.current() == second
+    assert registry.select(first["id"]) == first
+
+    renamed = registry.rename(first["id"], "Primary repository")
+
+    assert renamed == {
+        "id": first["id"],
+        "path": str(first_repository_path.resolve()),
+        "name": "Primary repository",
+    }
+    persisted_registry = RepositoryRegistry(config_dir)
+    assert persisted_registry.list() == [renamed, second]
+    assert persisted_registry.current() == renamed
+
+    assert persisted_registry.remove(first["id"]) == renamed
+    assert first_repository_path.is_dir()
+    assert persisted_registry.current() == second
+    assert RepositoryRegistry(config_dir).list() == [second]
+
+
+def test_repository_registry_rejects_valid_json_with_incomplete_schema(tmp_path):
+    from harness.repository_registry import RepositoryRegistry
+
+    config_dir = tmp_path / "application-config"
+    config_dir.mkdir()
+    registry_path = config_dir / "repositories.json"
+
+    registry_path.write_text('{"repositories": []}', encoding="utf-8")
+    with pytest.raises(ValueError, match="repositories.json"):
+        RepositoryRegistry(config_dir).current()
+
+    registry_path.write_text(
+        '{"repositories": [{"id": "repository-1", "name": "Missing path"}], '
+        '"current_repository_id": null}',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="repositories.json"):
+        RepositoryRegistry(config_dir).list()
+
+
 def _endpoint(app, path, method):
     for route in app.routes:
         if getattr(route, "path", None) == path and method in getattr(route, "methods", set()):
             return route.endpoint
     raise AssertionError(f"missing route {method} {path}")
+
+
+def _asgi_post(app, path, *, follow_redirects=False):
+    """Dispatch one ASGI HTTP request without automatically following redirects."""
+    if follow_redirects:
+        raise ValueError("This focused ASGI test client does not follow redirects")
+
+    response = {}
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        if message["type"] == "http.response.start":
+            response["status_code"] = message["status"]
+            response["headers"] = dict(message["headers"])
+
+    asyncio.run(
+        app(
+            {
+                "type": "http",
+                "asgi": {"version": "3.0", "spec_version": "2.3"},
+                "http_version": "1.1",
+                "method": "POST",
+                "scheme": "http",
+                "path": path,
+                "raw_path": path.encode(),
+                "query_string": b"",
+                "root_path": "",
+                "headers": [],
+                "client": ("testclient", 50000),
+                "server": ("testserver", 80),
+            },
+            receive,
+            send,
+        )
+    )
+    return response
+
+
+def test_default_app_registers_its_repository_and_can_select_it(tmp_path, monkeypatch):
+    repo = tmp_path / "default-repository"
+    repo.mkdir()
+    monkeypatch.setenv("APPDATA", str(tmp_path / "application-config"))
+
+    api = create_app(CoreService(repo, llm=MockLLM([])))
+
+    repository = api.state.repository_registry.current()
+    response = _asgi_post(
+        api, f"/ui/repositories/{repository['id']}/select", follow_redirects=False
+    )
+
+    assert repository["path"] == str(repo.resolve())
+    assert response["status_code"] == 303
+    assert response["headers"][b"location"] == b"/"
+
+
+def test_webui_repository_switches_task_service_and_isolates_tasks(tmp_path):
+    from harness.repository_registry import RepositoryRegistry
+
+    config_dir = tmp_path / "application-config"
+    first_repository_path = tmp_path / "first-repository"
+    second_repository_path = tmp_path / "second-repository"
+    first_repository_path.mkdir()
+    second_repository_path.mkdir()
+    registry = RepositoryRegistry(config_dir)
+    first = registry.register(first_repository_path)
+    service = CoreService(first_repository_path, llm=MockLLM([]))
+    api = create_app(service, registry=registry)
+
+    assert api.state.repository_registry is registry
+
+    second = _endpoint(api, "/ui/repositories", "POST")({"path": str(second_repository_path)})
+
+    task = _endpoint(api, "/ui/tasks", "POST")({"title": "Only in second"})
+    html = _endpoint(api, "/", "GET")().body.decode("utf-8")
+
+    assert registry.current() == second
+    assert second["name"] in html
+    assert "Only in second" in html
+    assert CoreService(first["path"]).list_tasks() == []
+    assert task["task_id"]
+
+
+def test_webui_repository_card_selects_without_a_select_button(tmp_path):
+    from harness.repository_registry import RepositoryRegistry
+
+    first_repository_path = tmp_path / "first-repository"
+    second_repository_path = tmp_path / "second-repository"
+    first_repository_path.mkdir()
+    second_repository_path.mkdir()
+    registry = RepositoryRegistry(tmp_path / "application-config")
+    first = registry.register(first_repository_path)
+    second = registry.register(second_repository_path)
+    api = create_app(CoreService(second_repository_path, llm=MockLLM([])), registry=registry)
+
+    html = _endpoint(api, "/", "GET")().body.decode("utf-8")
+
+    assert ">Select</button>" not in html
+    assert (
+        f'<form class="repo-select-form" method="post" '
+        f'action="/ui/repositories/{first["id"]}/select">'
+    ) in html
+    assert f'action="/ui/repositories/{second["id"]}/select"' not in html
+    assert f'action="/ui/repositories/{first["id"]}/rename"' in html
+    assert f'action="/ui/repositories/{first["id"]}/delete"' in html
+
+
+def test_webui_repository_rename_and_delete_routes_update_registry(tmp_path):
+    from harness.repository_registry import RepositoryRegistry
+
+    repository_path = tmp_path / "repository"
+    repository_path.mkdir()
+    registry = RepositoryRegistry(tmp_path / "application-config")
+    repository = registry.register(repository_path)
+    api = create_app(CoreService(repository_path, llm=MockLLM([])), registry=registry)
+
+    renamed = _endpoint(api, "/ui/repositories/{repository_id}/rename", "POST")(
+        repository["id"], {"name": "Renamed repository"}
+    )
+    response = _endpoint(api, "/ui/repositories/{repository_id}/delete", "POST")(
+        repository["id"]
+    )
+
+    assert renamed["name"] == "Renamed repository"
+    assert response.status_code == 303
+    assert response.headers["location"] == "/"
+    assert registry.list() == []
 
 
 def test_cli_run_with_mock_llm_creates_task_run_and_context_trace(tmp_path):
