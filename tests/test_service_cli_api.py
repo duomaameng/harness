@@ -50,6 +50,26 @@ def test_repository_registry_persists_registration_selection_rename_and_safe_rem
     assert RepositoryRegistry(config_dir).list() == [second]
 
 
+def test_repository_registry_rejects_valid_json_with_incomplete_schema(tmp_path):
+    from harness.repository_registry import RepositoryRegistry
+
+    config_dir = tmp_path / "application-config"
+    config_dir.mkdir()
+    registry_path = config_dir / "repositories.json"
+
+    registry_path.write_text('{"repositories": []}', encoding="utf-8")
+    with pytest.raises(ValueError, match="repositories.json"):
+        RepositoryRegistry(config_dir).current()
+
+    registry_path.write_text(
+        '{"repositories": [{"id": "repository-1", "name": "Missing path"}], '
+        '"current_repository_id": null}',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="repositories.json"):
+        RepositoryRegistry(config_dir).list()
+
+
 def _endpoint(app, path, method):
     for route in app.routes:
         if getattr(route, "path", None) == path and method in getattr(route, "methods", set()):

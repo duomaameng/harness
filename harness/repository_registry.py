@@ -87,6 +87,24 @@ class RepositoryRegistry:
 
         if not isinstance(state, dict) or not isinstance(state.get("repositories"), list):
             raise ValueError(f"Repository registry has invalid structure: {self.path}")
+        current_repository_id = state.get("current_repository_id")
+        if (
+            "current_repository_id" not in state
+            or current_repository_id is not None
+            and not isinstance(current_repository_id, str)
+        ):
+            raise ValueError(f"Repository registry has invalid structure: {self.path}")
+        for repository in state["repositories"]:
+            if not isinstance(repository, dict) or any(
+                not isinstance(repository.get(field), str)
+                for field in ("id", "path", "name")
+            ):
+                raise ValueError(f"Repository registry has invalid structure: {self.path}")
+        if current_repository_id is not None and not any(
+            repository["id"] == current_repository_id
+            for repository in state["repositories"]
+        ):
+            raise ValueError(f"Repository registry has invalid structure: {self.path}")
         return state
 
     def _write(self, state: dict[str, list[dict[str, str]] | str | None]) -> None:
