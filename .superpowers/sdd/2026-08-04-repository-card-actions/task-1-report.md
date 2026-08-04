@@ -23,4 +23,4 @@
 
 - Replaced the vacuous `repo-rename-input` assertion with checks scoped to the rendered `<aside class="task-sidebar">`: no inline repository-name input and no repository rename/delete form action may appear there. This allows the one shared rename/delete dialog rendered outside the sidebar while failing if an old per-card management form returns.
 - Updated the Chinese implementation plan to use the implemented markup contract: `repo-management-menu` and `Repository management`.
-- Focused test command `python -m pytest tests/test_service_cli_api.py::test_webui_repository_card_uses_overflow_menu_and_management_dialogs -q -p no:cacheprovider` could not start because PowerShell reports `python` is not recognized as a command. No unrelated checks were run.
+- 最终验证：使用本机项目虚拟环境并将 pytest 临时目录限定在 worktree 后，`tests/test_service_cli_api.py::test_webui_repository_card_uses_overflow_menu_and_management_dialogs` 通过（`1 passed in 0.92s`）。
