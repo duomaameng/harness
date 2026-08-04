@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,7 @@ def create_app(
     *,
     repo_path: str | Path = ".",
     registry: RepositoryRegistry | None = None,
+    service_factory: Callable[[Path], CoreService] | None = None,
 ) -> FastAPI:
     core = service or CoreService(repo_path)
     active_registry = registry or RepositoryRegistry(
@@ -97,7 +99,12 @@ def create_app(
     app.state.repository_registry = active_registry
     from harness.webui import include_webui
 
-    include_webui(app, core, registry=active_registry)
+    include_webui(
+        app,
+        core,
+        registry=active_registry,
+        service_factory=service_factory,
+    )
     return app
 
 
