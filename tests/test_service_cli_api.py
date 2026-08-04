@@ -14,6 +14,11 @@ from harness.llm import MockLLM, OpenAICompatibleClient
 from harness.service import CoreService
 
 
+@pytest.fixture(autouse=True)
+def isolate_appdata(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+
+
 def test_repository_registry_persists_registration_selection_rename_and_safe_removal(tmp_path):
     from harness.repository_registry import RepositoryRegistry
 
@@ -123,6 +128,15 @@ def _asgi_post(app, path, *, json=None, follow_redirects=False):
         )
     )
     return response
+
+
+def test_default_app_uses_temporary_appdata(tmp_path):
+    repo = tmp_path / "default-appdata-repository"
+    repo.mkdir()
+
+    api = create_app(CoreService(repo, llm=MockLLM([])))
+
+    assert api.state.repository_registry.config_dir == tmp_path / "appdata" / "harness"
 
 
 def test_default_app_registers_its_repository_and_can_select_it(tmp_path, monkeypatch):

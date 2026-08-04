@@ -505,6 +505,13 @@
 - Data model and audit events are covered by Task 1.
 - Testing strategy, MockLLM demonstration, Docker, CI, and README are covered by Task 13.
 
+## 2026-08-04 WebUI APPDATA test isolation
+
+- Status: Complete.
+- Added a test-only autouse `APPDATA` fixture to `tests/test_service_cli_api.py`; every test receives an app-data root inside its own `tmp_path`.
+- Preserved default registry coverage plus multi-repository registration, selection, rename, deletion, and task-isolation coverage.
+- TDD RED confirmed that an unconfigured default app resolves its registry to the real user app-data directory; GREEN and the full module now pass with the isolated environment.
+
 ## 2026-08-04 WebUI 职责边界清理
 
 - 保留多仓库注册、选择、重命名、删除注册和任务隔离功能。
