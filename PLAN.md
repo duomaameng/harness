@@ -511,7 +511,7 @@
 - Replaced the inline rename form and visible Rename/Delete buttons with an accessible overflow menu per repository card.
 - Added one shared rename dialog and one shared removal-confirmation dialog; dialog submission preserves the existing JSON mutation flow and removal copy explicitly states that local files are never deleted.
 - Added focused WebUI coverage for two repository cards, menu accessibility, shared dialogs, removal copy, and absence of the old sidebar rename input.
-- Test execution is environment-blocked: `python` and `py` are unavailable; the recorded bundled Python lacks the `pytest` module.
+- 验证：在本机项目虚拟环境中运行聚焦测试，并将 pytest 临时目录限定在 worktree 后通过（`1 passed in 0.92s`）。
 
 ## 2026-08-04 WebUI APPDATA test isolation
 
