@@ -1,5 +1,6 @@
 import asyncio
 import json as json_module
+import re
 import sqlite3
 from pathlib import Path
 
@@ -205,6 +206,36 @@ def test_webui_repository_card_selects_without_a_select_button(tmp_path):
     assert f'action="/ui/repositories/{second["id"]}/select"' not in html
     assert f'action="/ui/repositories/{first["id"]}/rename"' in html
     assert f'action="/ui/repositories/{first["id"]}/delete"' in html
+
+
+def test_webui_repository_card_uses_overflow_menu_and_management_dialogs(tmp_path):
+    from harness.repository_registry import RepositoryRegistry
+
+    first_repository_path = tmp_path / "first-repository"
+    second_repository_path = tmp_path / "second-repository"
+    first_repository_path.mkdir()
+    second_repository_path.mkdir()
+    registry = RepositoryRegistry(tmp_path / "application-config")
+    first = registry.register(first_repository_path)
+    registry.register(second_repository_path)
+    api = create_app(CoreService(second_repository_path, llm=MockLLM([])), registry=registry)
+
+    html = _endpoint(api, "/", "GET")().body.decode("utf-8")
+
+    assert html.count('class="repo-management-menu"') == 2
+    assert html.count('aria-label="Repository management"') == 2
+    assert 'aria-label="Rename first-repository"' in html
+    assert 'aria-label="Remove first-repository"' in html
+    assert html.count('id="rename-repository-dialog"') == 1
+    assert html.count('id="delete-repository-dialog"') == 1
+    assert "Remove from workbench only. Local files are never deleted." in html
+    sidebar_markup = re.search(
+        r'<aside class="task-sidebar">(.*?)</aside>', html, re.DOTALL
+    ).group(1)
+    assert '<input class="input" name="name" required>' not in sidebar_markup
+    assert not re.search(
+        r'action="/ui/repositories/[^\"]+/(?:rename|delete)"', sidebar_markup
+    )
 
 
 def test_webui_repository_rename_and_delete_routes_update_registry(tmp_path):
