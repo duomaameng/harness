@@ -1,58 +1,58 @@
-# WebUI Boundary Cleanup Design
+# WebUI 职责边界清理设计
 
-## Goal
+## 目标
 
-Correct WebUI repository switching so configured dependencies are preserved, move non-presentation responsibilities out of `harness/webui.py`, add HTTP-level regression coverage, and remove review-identified process artifacts that are not product deliverables.
+修复 WebUI 切换仓库时丢失配置依赖的问题；将展示以外的职责从 `harness/webui.py` 移出；补充 HTTP 层回归测试；移除审查发现的、非产品交付物的过程文件。
 
-## Scope
+## 范围
 
-This change addresses review findings 1, 4, and 5, plus the resulting SRP/DIP issue in the WebUI. It does not remove the repository-registry feature or implement the separately missing Docker, CI, README, and end-to-end demo deliverables.
+本次修改处理审查问题 1、4、5，以及由此产生的 WebUI SRP/DIP 问题。不移除仓库注册功能，也不实现独立缺失的 Docker、CI、README 和端到端演示交付物。
 
-## Architecture
+## 架构
 
-### Service provider
+### 服务提供器
 
-Create `harness/webui_services.py` with `WebUIServiceProvider`. It owns the mapping from registered repository path to `CoreService`.
+新增 `harness/webui_services.py`，定义 `WebUIServiceProvider`，专门维护“已注册仓库路径到 `CoreService`”的映射。
 
-- It is initialized with the original service and an optional `service_factory: Callable[[Path], CoreService]`.
-- It returns the original service for its repository path.
-- For another selected repository, it checks its cache before invoking the factory, then caches the created service.
-- Its default factory creates `CoreService` with the original service's LLM and validation-command configuration. A caller can provide a factory when it needs fresh per-repository dependencies.
+- 以初始服务和可选 `service_factory: Callable[[Path], CoreService]` 初始化。
+- 初始仓库路径始终返回原服务。
+- 访问其他已选仓库时，先查询缓存；仅在未命中时调用工厂，再缓存结果。
+- 默认工厂以原服务的 LLM 与验证命令配置创建 `CoreService`。调用方如需每个仓库使用独立依赖，可传入自己的工厂。
 
-This makes dependency creation explicit and keeps the WebUI from selecting a provider or discarding a caller-supplied MockLLM configuration.
+这样依赖创建变为显式行为，WebUI 不再自行选择提供器或丢弃调用方提供的 MockLLM 配置。
 
-### Route module
+### 路由模块
 
-Create `harness/webui_routes.py` with `include_webui`. It attaches HTTP routes, validates request payloads, invokes `RepositoryRegistry` and `WebUIServiceProvider`, and delegates HTML generation to rendering functions.
+新增 `harness/webui_routes.py`，承载 `include_webui`：注册 HTTP 路由、校验请求载荷、调用 `RepositoryRegistry` 和 `WebUIServiceProvider`，并将 HTML 生成委托给渲染函数。
 
-`harness/webui.py` becomes the presentation module: workbench/detail rendering, sidebar and evidence rendering, CSS, and browser JavaScript. It neither creates `CoreService` instances nor coordinates the repository registry.
+`harness/webui.py` 退回为展示模块：工作台/详情页、侧边栏和证据渲染、CSS 与浏览器 JavaScript。它不再构造 `CoreService`，也不协调仓库注册表。
 
-### Compatibility
+### 兼容性
 
-The public `include_webui` import remains available from `harness.webui` as a re-export, so existing callers and tests retain their import path. `create_app` continues to call that public interface.
+`harness.webui` 仍以再导出的方式提供 `include_webui`，因此现有调用方和测试无需更改导入路径。`create_app` 继续调用这一公开接口。
 
-## Behavior and Errors
+## 行为与错误处理
 
-- No repository selected returns HTTP 400 before task or approval operations.
-- An unknown repository selection returns HTTP 404.
-- Invalid repository registration or rename input returns HTTP 400.
-- Selecting a repository never constructs a service until a route actually needs it.
-- A cached service is reused unchanged for later requests.
+- 未选择仓库时，任务和审批操作在执行前返回 HTTP 400。
+- 选择未知仓库时返回 HTTP 404。
+- 仓库注册路径或重命名输入无效时返回 HTTP 400。
+- 选择仓库本身不会创建服务；仅在路由确实需要服务时才懒创建。
+- 后续请求复用未改变的缓存服务。
 
-## Testing
+## 测试
 
-Tests use real FastAPI HTTP requests through `TestClient` for repository JSON endpoints. They verify registering, selecting, renaming, and deleting repositories over HTTP.
+使用 `TestClient` 对仓库 JSON 端点发送真实 FastAPI HTTP 请求，验证注册、选择、重命名和删除。
 
-Provider-focused tests verify that a second repository receives a service created by the injected factory, that its configured MockLLM/validation settings survive the switch, and that repeated access does not construct duplicate services. Existing direct endpoint tests may remain for focused validation behavior, but they are not the sole coverage of the browser-facing contract.
+服务提供器测试验证：第二个仓库由注入工厂创建服务；切换后其 MockLLM/验证配置仍被保留；重复访问不会构造重复服务。现有直接调用端点的测试可保留用于细粒度输入校验，但不能作为浏览器接口的唯一覆盖。
 
-## Cleanup
+## 清理
 
-Remove committed `.superpowers/sdd/2026-07-27-webui-repository-registry/` process reports and `task-2-report.md`. Revert the uncommitted `TASK_FLOW.md` ignore rule and nonfunctional comments in `harness/service.py`. Product code and product tests are retained.
+移除已提交的 `.superpowers/sdd/2026-07-27-webui-repository-registry/` 过程报告与 `task-2-report.md`。撤销未提交的 `TASK_FLOW.md` 忽略规则和 `harness/service.py` 中无功能作用的注释。保留产品代码与产品测试。
 
-## Acceptance Criteria
+## 验收标准
 
-1. `harness/webui.py` has no `CoreService` construction or `RepositoryRegistry` coordination.
-2. Switching repositories preserves caller-specified dependency configuration and does not eagerly create or duplicate services.
-3. Repository-management routes pass HTTP-level JSON request tests.
-4. The identified process artifacts and unrelated uncommitted changes are absent.
-5. The focused and full test suites pass in a working Python environment.
+1. `harness/webui.py` 不包含 `CoreService` 构造或 `RepositoryRegistry` 协调逻辑。
+2. 切换仓库后仍保留调用方指定的依赖配置，且不会提前或重复创建服务。
+3. 仓库管理路由通过 HTTP 层 JSON 请求测试。
+4. 指定的过程文件和无关未提交变更均已移除。
+5. 在可用 Python 环境中，聚焦测试与完整测试套件均通过。
