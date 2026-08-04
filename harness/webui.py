@@ -226,9 +226,13 @@ def _render_repository_sidebar(
   <button class="repo-select-card" type="submit">{repository_summary}</button>
 </form>'''
         )
-        controls = f"""
-<form class="repository-json-form" method="post" action="/ui/repositories/{repository_id}/rename"><input class="input" name="name" value="{escape(repository['name'])}" required><button class="btn secondary repo-action" type="submit">Rename</button></form>
-<form method="post" action="/ui/repositories/{repository_id}/delete"><button class="btn secondary repo-action" type="submit">Delete</button></form>"""
+        controls = f"""<details class="repo-management-menu">
+  <summary aria-label="Repository management" title="Repository management">⋯</summary>
+  <div class="repo-management-actions">
+    <button type="button" data-repository-action="rename" data-repository-id="{repository_id}" data-repository-name="{escape(repository['name'])}" aria-label="Rename {escape(repository['name'])}">Rename</button>
+    <button type="button" data-repository-action="delete" data-repository-id="{repository_id}" data-repository-name="{escape(repository['name'])}" aria-label="Remove {escape(repository['name'])}">Remove</button>
+  </div>
+</details>"""
         task_list = _render_sidebar_tasks(tasks, runs) if active else ""
         groups.append(f"""<section class="repo-group{' active' if active else ''}" aria-label="repository">
   {selection}{controls}{task_list}</section>""")
@@ -237,7 +241,25 @@ def _render_repository_sidebar(
   <div class="sidebar-head"><p class="eyebrow">Repositories</p></div>
   <form class="task-form repository-json-form" method="post" action="/ui/repositories"><label>Repository path<input class="input" name="path" required></label><button class="btn sidebar-action" type="submit">+ Add repository</button></form>
   {empty_prompt}<div class="repo-list">{''.join(groups)}</div>
-</aside>"""
+</aside>{_render_repository_management_dialogs(repositories)}"""
+
+
+def _render_repository_management_dialogs(repositories: list[dict[str, str]]) -> str:
+    default_repository_id = escape(repositories[0]["id"]) if repositories else ""
+    return f"""<dialog id="rename-repository-dialog" aria-labelledby="rename-repository-title">
+  <form class="repository-json-form dialog-form" method="post" action="/ui/repositories/{default_repository_id}/rename">
+    <h3 id="rename-repository-title">Rename repository</h3>
+    <label>Repository name<input class="input" name="name" required autofocus></label>
+    <div class="button-row"><button class="btn" type="submit">Rename</button><button class="btn secondary" type="button" data-dialog-cancel>Cancel</button></div>
+  </form>
+</dialog>
+<dialog id="delete-repository-dialog" aria-labelledby="delete-repository-title">
+  <form class="repository-json-form dialog-form" method="post" action="/ui/repositories/{default_repository_id}/delete">
+    <h3 id="delete-repository-title">Remove repository</h3>
+    <p>Remove from workbench only. Local files are never deleted.</p>
+    <div class="button-row"><button class="btn reject" type="submit">Remove</button><button class="btn secondary" type="button" data-dialog-cancel>Cancel</button></div>
+  </form>
+</dialog>"""
 
 
 def _render_sidebar_tasks(tasks: list[dict[str, Any]], runs: list[dict[str, Any]]) -> str:
@@ -595,6 +617,16 @@ def _style() -> str:
     .repo-select-card { display: block; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; font: inherit; }
     .repo-select-card:hover .repo-title { text-decoration: underline; }
     .repo-select-card:focus-visible { outline: 2px solid #243f63; outline-offset: 4px; border-radius: 4px; }
+    .repo-management-menu { position: relative; margin-top: 10px; }
+    .repo-management-menu summary { width: 34px; min-height: 34px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; font-weight: 900; list-style: none; }
+    .repo-management-menu summary::-webkit-details-marker { display: none; }
+    .repo-management-actions { position: absolute; z-index: 1; display: grid; min-width: 140px; margin-top: 6px; padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); box-shadow: 0 8px 20px rgba(21,29,26,.14); }
+    .repo-management-actions button { padding: 8px; border: 0; border-radius: 4px; background: transparent; color: var(--ink); text-align: left; cursor: pointer; font: inherit; }
+    .repo-management-actions button:hover, .repo-management-actions button:focus-visible { background: var(--paper); }
+    dialog { width: min(420px, calc(100vw - 32px)); border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); box-shadow: 0 24px 60px rgba(21,29,26,.25); }
+    dialog::backdrop { background: rgba(21,29,26,.35); }
+    .dialog-form { display: grid; gap: 14px; }
+    .dialog-form h3, .dialog-form p { margin: 0; }
     .repo-title { margin: 0; font-size: 18px; }
     .repo-path, .current-repo-path, .panel-note, .section-summary, .context-reason, .item-meta, .empty, .task-status-note { color: var(--muted); }
     .repo-path, .current-repo-path, .excerpt, pre { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
@@ -710,6 +742,21 @@ def _script() -> str:
         });
         if (response.ok) window.location.reload();
       });
+    });
+    document.querySelectorAll("[data-repository-action]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const dialog = document.querySelector(`#${button.dataset.repositoryAction}-repository-dialog`);
+        const dialogForm = dialog?.querySelector("form");
+        if (!dialog || !dialogForm) return;
+        dialogForm.action = `/ui/repositories/${button.dataset.repositoryId}/${button.dataset.repositoryAction}`;
+        const nameInput = dialogForm.elements.namedItem("name");
+        if (nameInput) nameInput.value = button.dataset.repositoryName;
+        button.closest("details")?.removeAttribute("open");
+        dialog.showModal();
+      });
+    });
+    document.querySelectorAll("[data-dialog-cancel]").forEach((button) => {
+      button.addEventListener("click", () => button.closest("dialog")?.close());
     });
   </script>"""
 

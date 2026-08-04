@@ -207,6 +207,14 @@
 - 关联提交：`749118f`、`009ef3a`。
 - 限制：Python 不可用，测试待复跑。
 - 
+## 2026-08-04 Repository-card management dialogs
+
+- Worktree: `C:\Users\duoma\java\harness\.worktrees\repository-card-actions`
+- Branch: `codex/repository-card-actions`
+- TDD RED: added `test_webui_repository_card_uses_overflow_menu_and_management_dialogs` before production code. The prescribed command could not start because `python` was not found; `py` was also unavailable.
+- TDD GREEN/refactor: repository cards now expose labelled overflow menus that open shared rename/removal dialogs. Rename pre-fills and autofocuses the selected repository name; native dialog Escape/Enter behavior is retained. Mutation forms continue using JSON submission, and management controls remain outside the card-selection form.
+- Validation attempt: the recorded bundled Python executable was found but could not run the focused test because it lacks `pytest` (`No module named pytest`). No dependency was installed because the task forbids introducing dependencies.
+
 ## 2026-08-04 CI TestClient removal remediation
 
 - Replaced the `fastapi.testclient` dependency in `tests/test_service_cli_api.py` with the existing in-process ASGI helper.
