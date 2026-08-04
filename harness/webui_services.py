@@ -17,7 +17,11 @@ class WebUIServiceProvider:
         service_factory: Callable[[Path], CoreService] | None = None,
     ) -> None:
         self._services = {initial_service.repo_path: initial_service}
-        self._service_factory = service_factory or self._default_factory(initial_service)
+        self._service_factory = (
+            service_factory
+            if service_factory is not None
+            else self._default_factory(initial_service)
+        )
 
     def for_repository(self, repo_path: str | Path) -> CoreService:
         path = Path(repo_path).resolve()

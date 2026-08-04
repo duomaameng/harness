@@ -48,6 +48,8 @@ def include_webui(
 
     @app.get("/", response_class=HTMLResponse)
     def workbench() -> HTMLResponse:
+        from harness.webui import _render_workbench
+
         active = registry.current() if registry is not None else None
         return HTMLResponse(
             _render_workbench(
@@ -107,6 +109,8 @@ def include_webui(
 
     @app.get("/ui/runs/{run_id}", response_class=HTMLResponse)
     def run_detail(run_id: str) -> HTMLResponse:
+        from harness.webui import _render_run_detail
+
         return HTMLResponse(_render_run_detail(current_core(), run_id))
 
     @app.post("/ui/approvals/{approval_id}/approve")
@@ -146,7 +150,5 @@ def _max_rounds(payload: dict[str, Any]) -> int:
         raise HTTPException(status_code=400, detail="max_rounds must be at least 1")
     return max_rounds
 
-
-from harness.webui import _render_run_detail, _render_workbench
 
 __all__ = ["include_webui"]
