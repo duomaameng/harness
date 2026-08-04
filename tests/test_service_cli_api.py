@@ -228,7 +228,6 @@ def test_webui_repository_card_uses_overflow_menu_and_management_dialogs(tmp_pat
     assert html.count('id="rename-repository-dialog"') == 1
     assert html.count('id="delete-repository-dialog"') == 1
     assert "Remove from workbench only. Local files are never deleted." in html
-    assert f'action="/ui/repositories/{first["id"]}/rename"' not in html
     assert '<input class="repo-rename-input"' not in html
 
 

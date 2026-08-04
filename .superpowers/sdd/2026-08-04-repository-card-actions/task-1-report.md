@@ -14,3 +14,7 @@
 - Required command could not run: `python` and `py` are absent from PATH.
 - Fallback using `C:\Users\duoma\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe` failed with `No module named pytest`.
 - Therefore neither the required RED failure nor GREEN pass could be observed in this environment. No production dependency was added.
+
+## Fix round 1
+
+- Removed the incorrect assertion that the first repository's rename route was absent from the whole page. The single shared dialog intentionally has an initial route action; the test continues to assert that the old visible per-card rename input is absent.
