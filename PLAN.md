@@ -504,3 +504,9 @@
 - Credential and security design are covered by Tasks 6, 7, 11, and 13.
 - Data model and audit events are covered by Task 1.
 - Testing strategy, MockLLM demonstration, Docker, CI, and README are covered by Task 13.
+
+## 2026-08-04 WebUI 职责边界清理
+
+- 保留多仓库注册、选择、重命名、删除注册和任务隔离功能。
+- 已补充服务配置继承、路由展示拆分和 HTTP 契约测试。
+- 因 Python 解释器缺失，测试仍待在可用环境中复跑。

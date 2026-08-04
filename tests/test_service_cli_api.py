@@ -1,9 +1,11 @@
 import asyncio
 import json
 import sqlite3
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
 from harness.api import create_app
@@ -204,6 +206,65 @@ def test_webui_repository_rename_and_delete_routes_update_registry(tmp_path):
     assert response.status_code == 303
     assert response.headers["location"] == "/"
     assert registry.list() == []
+
+
+def test_webui_repository_management_routes_accept_http_json(tmp_path):
+    from harness.repository_registry import RepositoryRegistry
+
+    registry = RepositoryRegistry(tmp_path / "config")
+    first_path, second_path = tmp_path / "first", tmp_path / "second"
+    first_path.mkdir()
+    second_path.mkdir()
+    first = registry.register(first_path)
+    app = create_app(CoreService(first_path, llm=MockLLM([])), registry=registry)
+
+    with TestClient(app) as client:
+        added = client.post("/ui/repositories", json={"path": str(second_path)})
+        second = added.json()
+        selected = client.post(
+            f"/ui/repositories/{first['id']}/select", follow_redirects=False
+        )
+        renamed = client.post(
+            f"/ui/repositories/{first['id']}/rename", json={"name": "Primary"}
+        )
+        deleted = client.post(
+            f"/ui/repositories/{second['id']}/delete", follow_redirects=False
+        )
+
+    assert added.status_code == 200
+    assert selected.status_code == 303
+    assert renamed.json()["name"] == "Primary"
+    assert deleted.headers["location"] == "/"
+
+
+def test_webui_switch_uses_injected_service_factory(tmp_path):
+    from harness.repository_registry import RepositoryRegistry
+
+    first_path, second_path = tmp_path / "first", tmp_path / "second"
+    first_path.mkdir()
+    second_path.mkdir()
+    registry = RepositoryRegistry(tmp_path / "config")
+    registry.register(first_path)
+    second = registry.register(second_path)
+    created = []
+
+    def factory(path: Path) -> CoreService:
+        service = CoreService(path, llm=MockLLM([]), validation_commands=["pytest -q"])
+        created.append(service)
+        return service
+
+    app = create_app(
+        CoreService(first_path, llm=MockLLM([])),
+        registry=registry,
+        service_factory=factory,
+    )
+    with TestClient(app) as client:
+        client.post(f"/ui/repositories/{second['id']}/select", follow_redirects=False)
+        response = client.post("/ui/tasks", json={"title": "Task in second"})
+
+    assert response.status_code == 200
+    assert len(created) == 1
+    assert created[0].repo_path == second_path.resolve()
 
 
 def test_cli_run_with_mock_llm_creates_task_run_and_context_trace(tmp_path):

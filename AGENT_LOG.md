@@ -200,3 +200,9 @@
 - TDD GREEN: `ReportExporter.to_markdown()` now renders Chinese overview, conclusion, context, action, validation, approval, changed-file, and audit-data sections; JSON export and redaction behavior remain unchanged.
 - Integration: report download and WebUI run detail both consume the same readable Markdown report.
 - Focused report-export test passed. One existing integration test remains environment-blocked because it attempts an external LLM request under restricted network permissions.
+
+## 2026-08-04 WebUI 职责边界清理
+
+- 保留多仓库注册、选择、重命名、删除注册和任务隔离功能；服务配置继承、路由展示拆分和 HTTP 契约测试已补充。
+- 关联提交：`749118f`、`009ef3a`。
+- 限制：Python 不可用，测试待复跑。
