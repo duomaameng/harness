@@ -1,11 +1,10 @@
 import asyncio
-import json
+import json as json_module
 import sqlite3
 from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
-from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
 from harness.api import create_app
@@ -80,20 +79,28 @@ def _endpoint(app, path, method):
     raise AssertionError(f"missing route {method} {path}")
 
 
-def _asgi_post(app, path, *, follow_redirects=False):
+def _asgi_post(app, path, *, json=None, follow_redirects=False):
     """Dispatch one ASGI HTTP request without automatically following redirects."""
     if follow_redirects:
         raise ValueError("This focused ASGI test client does not follow redirects")
 
-    response = {}
+    request_body = b"" if json is None else json_module.dumps(json).encode("utf-8")
+    request_headers = []
+    if json is not None:
+        request_headers.append((b"content-type", b"application/json"))
+    if request_body:
+        request_headers.append((b"content-length", str(len(request_body)).encode("ascii")))
+    response = {"body": b""}
 
     async def receive():
-        return {"type": "http.request", "body": b"", "more_body": False}
+        return {"type": "http.request", "body": request_body, "more_body": False}
 
     async def send(message):
         if message["type"] == "http.response.start":
             response["status_code"] = message["status"]
             response["headers"] = dict(message["headers"])
+        elif message["type"] == "http.response.body":
+            response["body"] += message.get("body", b"")
 
     asyncio.run(
         app(
@@ -107,7 +114,7 @@ def _asgi_post(app, path, *, follow_redirects=False):
                 "raw_path": path.encode(),
                 "query_string": b"",
                 "root_path": "",
-                "headers": [],
+                "headers": request_headers,
                 "client": ("testclient", 50000),
                 "server": ("testserver", 80),
             },
@@ -218,23 +225,22 @@ def test_webui_repository_management_routes_accept_http_json(tmp_path):
     first = registry.register(first_path)
     app = create_app(CoreService(first_path, llm=MockLLM([])), registry=registry)
 
-    with TestClient(app) as client:
-        added = client.post("/ui/repositories", json={"path": str(second_path)})
-        second = added.json()
-        selected = client.post(
-            f"/ui/repositories/{first['id']}/select", follow_redirects=False
-        )
-        renamed = client.post(
-            f"/ui/repositories/{first['id']}/rename", json={"name": "Primary"}
-        )
-        deleted = client.post(
-            f"/ui/repositories/{second['id']}/delete", follow_redirects=False
-        )
+    added = _asgi_post(app, "/ui/repositories", json={"path": str(second_path)})
+    second = json_module.loads(added["body"])
+    selected = _asgi_post(
+        app, f"/ui/repositories/{first['id']}/select", follow_redirects=False
+    )
+    renamed = _asgi_post(
+        app, f"/ui/repositories/{first['id']}/rename", json={"name": "Primary"}
+    )
+    deleted = _asgi_post(
+        app, f"/ui/repositories/{second['id']}/delete", follow_redirects=False
+    )
 
-    assert added.status_code == 200
-    assert selected.status_code == 303
-    assert renamed.json()["name"] == "Primary"
-    assert deleted.headers["location"] == "/"
+    assert added["status_code"] == 200
+    assert selected["status_code"] == 303
+    assert json_module.loads(renamed["body"])["name"] == "Primary"
+    assert deleted["headers"][b"location"] == b"/"
 
 
 def test_webui_switch_uses_injected_service_factory(tmp_path):
@@ -258,11 +264,13 @@ def test_webui_switch_uses_injected_service_factory(tmp_path):
         registry=registry,
         service_factory=factory,
     )
-    with TestClient(app) as client:
-        client.post(f"/ui/repositories/{second['id']}/select", follow_redirects=False)
-        response = client.post("/ui/tasks", json={"title": "Task in second"})
+    selected = _asgi_post(
+        app, f"/ui/repositories/{second['id']}/select", follow_redirects=False
+    )
+    response = _asgi_post(app, "/ui/tasks", json={"title": "Task in second"})
 
-    assert response.status_code == 200
+    assert selected["status_code"] == 303
+    assert response["status_code"] == 200
     assert len(created) == 1
     assert created[0].repo_path == second_path.resolve()
 
@@ -617,7 +625,7 @@ def test_report_payload_includes_top_level_changed_files(tmp_path):
     action = service.storage.create_action(Action(
         task_run_id=run.id,
         action_type="write_file",
-        args_json=json.dumps({"path": "app.py", "content": "print('ok')"}),
+        args_json=json_module.dumps({"path": "app.py", "content": "print('ok')"}),
     ))
     service.storage.create_tool_result(ToolResult(
         action_id=action.id,
@@ -650,9 +658,9 @@ def test_approval_action_args_are_redacted_for_api_and_webui(tmp_path):
     approval = _endpoint(api, "/runs/{run_id}/approvals", "GET")(run_id)[0]
     html = _endpoint(api, "/ui/runs/{run_id}", "GET")(run_id).body.decode("utf-8")
 
-    assert secret not in json.dumps(approval)
+    assert secret not in json_module.dumps(approval)
     assert secret not in html
-    assert "[REDACTED]" in json.dumps(approval)
+    assert "[REDACTED]" in json_module.dumps(approval)
     assert "[REDACTED]" in html
 
 

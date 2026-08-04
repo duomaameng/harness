@@ -206,3 +206,10 @@
 - 保留多仓库注册、选择、重命名、删除注册和任务隔离功能；服务配置继承、路由展示拆分和 HTTP 契约测试已补充。
 - 关联提交：`749118f`、`009ef3a`。
 - 限制：Python 不可用，测试待复跑。
+- 
+## 2026-08-04 CI TestClient removal remediation
+
+- Replaced the `fastapi.testclient` dependency in `tests/test_service_cli_api.py` with the existing in-process ASGI helper.
+- The helper now accepts JSON request bodies and records ASGI response status, headers, and body without following redirects.
+- RED: the two HTTP JSON tests raised `TypeError` because `_asgi_post` did not accept `json`.
+- GREEN/refactor: both focused JSON-route tests passed after the helper change and after replacing the temporary JSON import lookup with `json_module`.
