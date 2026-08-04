@@ -213,3 +213,10 @@
 - The helper now accepts JSON request bodies and records ASGI response status, headers, and body without following redirects.
 - RED: the two HTTP JSON tests raised `TypeError` because `_asgi_post` did not accept `json`.
 - GREEN/refactor: both focused JSON-route tests passed after the helper change and after replacing the temporary JSON import lookup with `json_module`.
+
+## 2026-08-04 WebUI APPDATA test isolation
+
+- Worktree: `C:\Users\duoma\java\harness\.worktrees\codex-webui-boundary-cleanup`
+- TDD RED: temporarily removed the test fixture while retaining `test_default_app_uses_temporary_appdata`; elevated local pytest failed as expected because the default registry used `C:/Users/duoma/AppData/Roaming/harness` instead of `tmp_path/appdata/harness`.
+- TDD GREEN: restored the minimal autouse fixture setting `APPDATA` to `tmp_path / "appdata"`; the focused test passed.
+- Validation: elevated local `python -m pytest tests/test_service_cli_api.py -q --basetemp .pytest-tmp/appdata-isolation-module` passed with 42 tests.
