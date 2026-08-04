@@ -1,5 +1,6 @@
 import asyncio
 import json as json_module
+import re
 import sqlite3
 from pathlib import Path
 
@@ -228,7 +229,13 @@ def test_webui_repository_card_uses_overflow_menu_and_management_dialogs(tmp_pat
     assert html.count('id="rename-repository-dialog"') == 1
     assert html.count('id="delete-repository-dialog"') == 1
     assert "Remove from workbench only. Local files are never deleted." in html
-    assert '<input class="repo-rename-input"' not in html
+    sidebar_markup = re.search(
+        r'<aside class="task-sidebar">(.*?)</aside>', html, re.DOTALL
+    ).group(1)
+    assert '<input class="input" name="name" required>' not in sidebar_markup
+    assert not re.search(
+        r'action="/ui/repositories/[^\"]+/(?:rename|delete)"', sidebar_markup
+    )
 
 
 def test_webui_repository_rename_and_delete_routes_update_registry(tmp_path):

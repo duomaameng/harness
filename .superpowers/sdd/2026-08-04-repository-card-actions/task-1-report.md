@@ -18,3 +18,9 @@
 ## Fix round 1
 
 - Removed the incorrect assertion that the first repository's rename route was absent from the whole page. The single shared dialog intentionally has an initial route action; the test continues to assert that the old visible per-card rename input is absent.
+
+## Final review fix
+
+- Replaced the vacuous `repo-rename-input` assertion with checks scoped to the rendered `<aside class="task-sidebar">`: no inline repository-name input and no repository rename/delete form action may appear there. This allows the one shared rename/delete dialog rendered outside the sidebar while failing if an old per-card management form returns.
+- Updated the Chinese implementation plan to use the implemented markup contract: `repo-management-menu` and `Repository management`.
+- Focused test command `python -m pytest tests/test_service_cli_api.py::test_webui_repository_card_uses_overflow_menu_and_management_dialogs -q -p no:cacheprovider` could not start because PowerShell reports `python` is not recognized as a command. No unrelated checks were run.
