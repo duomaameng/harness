@@ -78,8 +78,10 @@ class CoreService:
         )
         for package in packages:
             package["items"] = [
-                self._context_item_payload(item_id)
-                for item_id in self.storage.get_package_items(package["id"])
+                # 先是遍历package
+                # 然后取出package pid中所有的item_id
+                # 列表中加入这个item_id对应的item
+                self._context_item_payload(item_id) for item_id in self.storage.get_package_items(package["id"])
             ]
         return packages
 
