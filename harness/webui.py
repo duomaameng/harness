@@ -67,7 +67,6 @@ def _render_workbench(
       <span class="brand-mark">H</span>
       <span>
         <strong class="brand-title">上下文感知编码框架</strong>
-        <small class="brand-subtitle">Harness Workbench · 用于审计编码智能体运行的开发者工作台</small>
       </span>
     </a>
     <nav class="nav-tabs" aria-label="main views">
@@ -81,18 +80,11 @@ def _render_workbench(
     <div class="dashboard-shell">
       {sidebar}
       <section class="main-view workbench-view">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">工作台</p>
-            <h2>把任务提交、运行状态和审计证据放在同一个操作台。</h2>
-          </div>
-          <p class="section-summary">WebUI 是面向用户的前端入口；harness 在后端完成上下文选择、动作执行、护栏与记录。</p>
-        </div>
+        <div class="section-head"><h1 class="workbench-title">工作台</h1></div>
         <section class="panel" id="new-task">
           <div class="panel-header">
             <div>
               <h3 class="panel-title" id="create-task">新建任务</h3>
-              <p class="panel-note">通过 CoreService 创建任务；创建并运行会立即进入后端 runner。</p>
             </div>
           </div>
           <div class="panel-body">
@@ -102,8 +94,8 @@ def _render_workbench(
               <div class="current-repo-path">{escape(current_path)}</div>
             </div>
             <form class="task-form" id="task-form">
-              <label>标题<input class="input" name="title" required placeholder="补充计算器边界用例测试"></label>
-              <label>描述<textarea class="textarea" name="description" rows="7" placeholder="检查边界行为，补充聚焦测试，并保持验证结果可重复。"></textarea></label>
+              <label>标题<input class="input" name="title" required></label>
+              <label>描述<textarea class="textarea" name="description" rows="7"></textarea></label>
               <label class="rounds">轮次<input class="input" name="max_rounds" type="number" min="1" max="12" value="1"></label>
               <div class="button-row">
                 <button class="btn" type="submit" data-mode="create">创建任务</button>
@@ -117,7 +109,6 @@ def _render_workbench(
           <div class="panel-header">
             <div>
               <h3 class="panel-title">当前运行</h3>
-              <p class="panel-note">运行详情页展示上下文、动作、护栏、反馈和报告。</p>
             </div>
             {_status_badge(latest_run.get("status") if latest_run else "idle")}
           </div>
@@ -160,7 +151,6 @@ def _render_run_detail(core: CoreService, run_id: str) -> str:
       <span class="brand-mark">H</span>
       <span>
         <strong class="brand-title">上下文感知编码框架</strong>
-        <small class="brand-subtitle">运行详情与审批</small>
       </span>
     </a>
     <nav class="nav-tabs" aria-label="run actions">
@@ -176,7 +166,6 @@ def _render_run_detail(core: CoreService, run_id: str) -> str:
     <section class="run-hero">
       <div class="run-hero-top">
         <div>
-          <p class="eyebrow">运行详情</p>
           <h1>{escape(title)}</h1>
           <p>{escape(description)}</p>
         </div>
@@ -198,7 +187,6 @@ def _render_run_detail(core: CoreService, run_id: str) -> str:
         <div class="panel-header">
           <div>
             <h3 class="panel-title" id="timeline-title">时间线</h3>
-            <p class="panel-note">按顺序排列的审计与领域事件</p>
           </div>
         </div>
         <div class="panel-body">
@@ -300,7 +288,7 @@ def _render_current_run(
     feedback_count: int,
 ) -> str:
     if not run:
-        return '<p class="empty">创建并运行任务后，这里会显示最新运行。</p>'
+        return ""
     return f"""<div class="task-status-card">
   <h4>{escape(str(run.get("task_title") or "Untitled task"))}</h4>
   <p class="task-status-note">第 {escape(str(run.get("current_round") or 0))} 轮，状态：{escape(str(run.get("status") or "unknown"))}。</p>
@@ -428,7 +416,7 @@ def _render_context(packages: list[dict[str, Any]]) -> str:
             )
     body = "".join(items) or '<p class="empty">暂无上下文。</p>'
     return f"""<section class="panel" aria-labelledby="context-title">
-  <div class="panel-header"><div><h3 class="panel-title" id="context-title">已选上下文</h3><p class="panel-note">解释这些文件为何进入提示</p></div></div>
+  <div class="panel-header"><div><h3 class="panel-title" id="context-title">已选上下文</h3></div></div>
   <div class="panel-body"><div class="context-list">{body}</div></div>
 </section>"""
 
@@ -459,7 +447,7 @@ def _render_feedback(feedback: list[dict[str, Any]]) -> str:
 def _render_approvals(approvals: list[dict[str, Any]]) -> str:
     if not approvals:
         return """<section class="approval-box" aria-labelledby="approval-title">
-  <div class="panel-header"><div><h3 class="panel-title" id="approval-title">待审批</h3><p class="panel-note">执行前需要人工决策</p></div><span class="badge ready">无待审批</span></div>
+  <div class="panel-header"><div><h3 class="panel-title" id="approval-title">待审批</h3></div><span class="badge ready">无待审批</span></div>
   <div class="panel-body"><p class="empty">暂无待审批动作。</p></div>
 </section>"""
     body = "".join(
@@ -475,7 +463,7 @@ def _render_approvals(approvals: list[dict[str, Any]]) -> str:
         for approval in approvals
     )
     return f"""<section class="approval-box" aria-labelledby="approval-title">
-  <div class="panel-header"><div><h3 class="panel-title" id="approval-title">待审批</h3><p class="panel-note">执行前需要人工决策</p></div><span class="badge warn">中风险</span></div>
+  <div class="panel-header"><div><h3 class="panel-title" id="approval-title">待审批</h3></div><span class="badge warn">中风险</span></div>
   <div class="panel-body">{body}</div>
 </section>"""
 
@@ -564,7 +552,7 @@ def _is_markdown_table_separator(line: str) -> bool:
 
 def _panel(title: str, note: str, body: str) -> str:
     return f"""<section class="panel">
-  <div class="panel-header"><div><h3 class="panel-title">{escape(title)}</h3><p class="panel-note">{escape(note)}</p></div></div>
+  <div class="panel-header"><div><h3 class="panel-title">{escape(title)}</h3></div></div>
   <div class="panel-body">{body}</div>
 </section>"""
 
@@ -655,6 +643,7 @@ def _style() -> str:
     .main-view, .detail-shell { padding: 28px; }
     .section-head { margin-bottom: 18px; }
     .section-head h2 { margin: 0; max-width: 780px; font-size: clamp(30px, 4vw, 52px); line-height: 1; letter-spacing: 0; }
+    .workbench-title { margin: 0; font-size: clamp(28px, 3vw, 36px); line-height: 1.1; }
     .eyebrow { margin: 0 0 8px; color: #243f63; font-family: var(--mono); font-size: 12px; font-weight: 900; text-transform: uppercase; }
     .panel + .panel, .approval-box + .panel { margin-top: 18px; }
     .panel-header { padding: 16px 18px; border-bottom: 1px solid var(--line); }

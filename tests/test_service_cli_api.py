@@ -312,8 +312,8 @@ def test_webui_repository_card_selects_without_a_select_button(tmp_path):
         f'action="/ui/repositories/{first["id"]}/select">'
     ) in html
     assert f'action="/ui/repositories/{second["id"]}/select"' not in html
-    assert f'action="/ui/repositories/{first["id"]}/rename"' in html
-    assert f'action="/ui/repositories/{first["id"]}/delete"' in html
+    assert f'data-repository-id="{first["id"]}"' in html
+    assert f'data-repository-id="{second["id"]}"' in html
 
 
 def test_webui_repository_card_uses_overflow_menu_and_management_dialogs(tmp_path):
@@ -861,11 +861,35 @@ def test_webui_root_renders_integrated_workbench_with_existing_runs(tmp_path):
     response = _endpoint(api, "/", "GET")()
     html = response.body.decode("utf-8")
 
-    assert "Harness Workbench" in html
     assert "新建任务" in html
     assert "Update docs" in html
     assert f"/ui/runs/{run.id}" in html
     assert str(repo) in html
+
+
+def test_webui_omits_generic_descriptive_copy(tmp_path):
+    repo = tmp_path / "webui-copy-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    api = create_app(service)
+    task = service.create_task("Summarize repository", "Summarize files")
+    run = service.run_task(task.id, max_rounds=1)
+
+    workbench_html = _endpoint(api, "/", "GET")().body.decode("utf-8")
+    detail_html = _endpoint(api, "/ui/runs/{run_id}", "GET")(run.id).body.decode("utf-8")
+
+    assert '<h1 class="workbench-title">工作台</h1>' in workbench_html
+    for text in (
+        "Harness Workbench",
+        "WebUI 是面向用户的前端入口",
+        "通过 CoreService 创建任务",
+        "运行详情页展示上下文、动作、护栏、反馈和报告。",
+        "运行详情与审批",
+        "按顺序排列的审计与领域事件",
+        "解释这些文件为何进入提示",
+        "执行前需要人工决策",
+    ):
+        assert text not in workbench_html + detail_html
 
 
 def test_webui_sidebar_task_links_to_its_run_detail(tmp_path):
