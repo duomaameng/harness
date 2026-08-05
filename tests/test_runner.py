@@ -2,7 +2,7 @@ import sqlite3
 import json
 
 from harness.domain import Feedback, FeedbackCategory, FeedbackSource, Task, TaskStatus
-from harness.llm import MockLLM
+from harness.llm import LLMTimeoutError, MockLLM
 from harness.runner import AgentRunner
 from harness.storage import HarnessStorage
 
@@ -154,6 +154,27 @@ def test_runner_creates_approval_request_for_approval_actions(tmp_path):
     assert len(approvals) == 1
     assert approvals[0][1] == "pending"
     assert "approval" in approvals[0][2].lower()
+
+
+def test_runner_stops_and_records_a_model_timeout(tmp_path):
+    class TimeoutLLM:
+        def complete(self, messages):
+            raise LLMTimeoutError("Model request timed out")
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    storage = HarnessStorage(repo)
+    storage.init()
+    task = storage.create_task(
+        Task(title="Summarize repository", description="Summarize files", repo_path=str(repo))
+    )
+
+    run = AgentRunner(storage=storage, llm=TimeoutLLM(), repo_root=repo).run(task.id)
+    stored_run = storage.get_task_run(run.id)
+
+    assert run.status == TaskStatus.STOPPED.value
+    assert run.stop_reason == "model_timeout"
+    assert stored_run["finished_at"] is not None
 
 
 def test_runner_runs_validation_after_tool_execution_and_records_feedback(tmp_path):

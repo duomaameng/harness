@@ -36,6 +36,10 @@ class LLMClientError(RuntimeError):
     """Raised when a real model provider cannot return usable output."""
 
 
+class LLMTimeoutError(LLMClientError):
+    """Raised when a model request exceeds its configured timeout."""
+
+
 @dataclass(frozen=True)
 class OpenAICompatibleClient:
     """Configuration shell for an OpenAI-compatible chat-completions client."""
@@ -67,7 +71,13 @@ class OpenAICompatibleClient:
                 body = json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:
             raise LLMClientError(self._http_error_message(exc)) from exc
-        except (URLError, TimeoutError, OSError) as exc:
+        except TimeoutError as exc:
+            raise LLMTimeoutError("Model request timed out.") from exc
+        except URLError as exc:
+            if isinstance(exc.reason, TimeoutError):
+                raise LLMTimeoutError("Model request timed out.") from exc
+            raise LLMClientError(str(_redact(f"Model request failed: {exc}"))) from exc
+        except OSError as exc:
             raise LLMClientError(str(_redact(f"Model request failed: {exc}"))) from exc
         except json.JSONDecodeError as exc:
             raise LLMClientError("Model response was not valid JSON.") from exc

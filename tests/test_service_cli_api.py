@@ -49,13 +49,36 @@ def test_repository_registry_persists_registration_selection_rename_and_safe_rem
         "name": "Primary repository",
     }
     persisted_registry = RepositoryRegistry(config_dir)
-    assert persisted_registry.list() == [renamed, second]
+    assert persisted_registry.list() == [second, renamed]
     assert persisted_registry.current() == renamed
 
     assert persisted_registry.remove(first["id"]) == renamed
     assert first_repository_path.is_dir()
     assert persisted_registry.current() == second
     assert RepositoryRegistry(config_dir).list() == [second]
+
+
+def test_repository_registry_orders_new_and_recently_used_repositories_first(tmp_path):
+    from harness.repository_registry import RepositoryRegistry
+
+    first_repository_path = tmp_path / "first-repository"
+    second_repository_path = tmp_path / "second-repository"
+    first_repository_path.mkdir()
+    second_repository_path.mkdir()
+    registry = RepositoryRegistry(tmp_path / "application-config")
+
+    first = registry.register(first_repository_path)
+    second = registry.register(second_repository_path)
+
+    assert registry.list() == [second, first]
+
+    registry.select(first["id"])
+
+    assert RepositoryRegistry(registry.config_dir).list() == [second, first]
+
+    registry.mark_used(first["id"])
+
+    assert RepositoryRegistry(registry.config_dir).list() == [first, second]
 
 
 def test_repository_registry_rejects_valid_json_with_incomplete_schema(tmp_path):
@@ -184,6 +207,91 @@ def test_webui_repository_switches_task_service_and_isolates_tasks(tmp_path):
     assert task["task_id"]
 
 
+def test_webui_repository_picker_registers_the_selected_directory(tmp_path, monkeypatch):
+    from harness.repository_registry import RepositoryRegistry
+
+    current_repository_path = tmp_path / "current-repository"
+    selected_repository_path = tmp_path / "selected-repository"
+    current_repository_path.mkdir()
+    selected_repository_path.mkdir()
+    registry = RepositoryRegistry(tmp_path / "application-config")
+    registry.register(current_repository_path)
+    api = create_app(CoreService(current_repository_path, llm=MockLLM([])), registry=registry)
+    monkeypatch.setattr(
+        "harness.webui_routes._choose_repository_directory",
+        lambda: selected_repository_path,
+    )
+
+    repository = _endpoint(api, "/ui/repositories/pick", "POST")()
+    html = _endpoint(api, "/", "GET")().body.decode("utf-8")
+
+    assert repository["path"] == str(selected_repository_path.resolve())
+    assert registry.current() == repository
+    assert '<input class="input" name="path" required>' not in html
+    assert 'data-repository-picker' in html
+
+
+def test_webui_repository_picker_selects_an_already_registered_directory(tmp_path, monkeypatch):
+    from harness.repository_registry import RepositoryRegistry
+
+    current_repository_path = tmp_path / "current-repository"
+    selected_repository_path = tmp_path / "selected-repository"
+    current_repository_path.mkdir()
+    selected_repository_path.mkdir()
+    registry = RepositoryRegistry(tmp_path / "application-config")
+    selected = registry.register(selected_repository_path)
+    registry.register(current_repository_path)
+    api = create_app(CoreService(current_repository_path, llm=MockLLM([])), registry=registry)
+    monkeypatch.setattr(
+        "harness.webui_routes._choose_repository_directory",
+        lambda: selected_repository_path,
+    )
+
+    repository = _endpoint(api, "/ui/repositories/pick", "POST")()
+
+    assert repository == selected
+    assert registry.current() == selected
+    assert len(registry.list()) == 2
+
+
+def test_webui_task_creation_moves_the_used_repository_to_the_first_position(tmp_path):
+    from harness.repository_registry import RepositoryRegistry
+
+    first_repository_path = tmp_path / "first-repository"
+    second_repository_path = tmp_path / "second-repository"
+    first_repository_path.mkdir()
+    second_repository_path.mkdir()
+    registry = RepositoryRegistry(tmp_path / "application-config")
+    first = registry.register(first_repository_path)
+    second = registry.register(second_repository_path)
+    registry.select(first["id"])
+    api = create_app(CoreService(second_repository_path, llm=MockLLM([])), registry=registry)
+
+    _endpoint(api, "/ui/tasks", "POST")({"title": "Use first repository"})
+
+    assert registry.list() == [first, second]
+
+
+def test_webui_sidebar_keeps_the_current_repository_position_and_uses_its_display_name(tmp_path):
+    from harness.repository_registry import RepositoryRegistry
+
+    first_repository_path = tmp_path / "first-repository"
+    current_repository_path = tmp_path / "current-repository"
+    first_repository_path.mkdir()
+    current_repository_path.mkdir()
+    registry = RepositoryRegistry(tmp_path / "application-config")
+    first = registry.register(first_repository_path)
+    current = registry.register(current_repository_path)
+    registry.select(first["id"])
+    registry.rename(first["id"], "Current work")
+    api = create_app(CoreService(first_repository_path, llm=MockLLM([])), registry=registry)
+
+    html = _endpoint(api, "/", "GET")().body.decode("utf-8")
+
+    assert html.index(current["name"]) < html.index('class="repo-group active"')
+    assert '<div class="current-repo-name">Current work</div>' in html
+
+
 def test_webui_repository_card_selects_without_a_select_button(tmp_path):
     from harness.repository_registry import RepositoryRegistry
 
@@ -236,6 +344,39 @@ def test_webui_repository_card_uses_overflow_menu_and_management_dialogs(tmp_pat
     assert not re.search(
         r'action="/ui/repositories/[^\"]+/(?:rename|delete)"', sidebar_markup
     )
+
+
+def test_webui_repository_sidebar_preserves_spacing_between_controls_and_content(tmp_path):
+    from harness.repository_registry import RepositoryRegistry
+
+    repository_path = tmp_path / "repository"
+    repository_path.mkdir()
+    registry = RepositoryRegistry(tmp_path / "application-config")
+    registry.register(repository_path)
+    api = create_app(CoreService(repository_path, llm=MockLLM([])), registry=registry)
+
+    html = _endpoint(api, "/", "GET")().body.decode("utf-8")
+
+    assert ".task-sidebar .repository-json-form, .sidebar-action { margin-bottom: 14px; }" in html
+    assert ".repo-management-menu { position: relative; margin: 10px 0 14px; }" in html
+
+
+def test_webui_repository_path_is_available_from_a_name_hover_tooltip(tmp_path):
+    from harness.repository_registry import RepositoryRegistry
+
+    repository_path = tmp_path / "repository"
+    repository_path.mkdir()
+    registry = RepositoryRegistry(tmp_path / "application-config")
+    registry.register(repository_path)
+    api = create_app(CoreService(repository_path, llm=MockLLM([])), registry=registry)
+
+    html = _endpoint(api, "/", "GET")().body.decode("utf-8")
+
+    assert '<div class="repo-name-with-path">' in html
+    assert f'<span class="repo-path-tooltip" role="tooltip">{repository_path}</span>' in html
+    assert '<p class="repo-path">' not in html
+    assert ".repo-name-with-path:hover .repo-path-tooltip," in html
+    assert ".repo-name-with-path:focus-within .repo-path-tooltip { display: block; }" in html
 
 
 def test_webui_repository_rename_and_delete_routes_update_registry(tmp_path):

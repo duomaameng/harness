@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from harness.domain import ApprovalStatus
 from harness.repository_registry import RepositoryRegistry
@@ -46,6 +46,13 @@ def include_webui(
             raise HTTPException(status_code=400, detail="Repository registry is not configured")
         return registry
 
+    def mark_current_repository_used() -> None:
+        if registry is None:
+            return
+        repository = registry.current()
+        if repository is not None:
+            registry.mark_used(repository["id"])
+
     @app.get("/", response_class=HTMLResponse)
     def workbench() -> HTMLResponse:
         from harness.webui import _render_workbench
@@ -67,6 +74,16 @@ def include_webui(
     def register_repository(payload: dict[str, Any]) -> dict[str, str]:
         try:
             return required_registry().register(str(payload.get("path") or ""))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/ui/repositories/pick", response_model=None)
+    def pick_repository() -> dict[str, str] | Response:
+        directory = _choose_repository_directory()
+        if directory is None:
+            return Response(status_code=204)
+        try:
+            return required_registry().register_or_select(directory)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -96,6 +113,7 @@ def include_webui(
         task = current_core().create_task(
             _required_title(payload), str(payload.get("description") or "")
         )
+        mark_current_repository_used()
         return {"task_id": task.id, "detail_url": None}
 
     @app.post("/ui/tasks/run")
@@ -105,6 +123,7 @@ def include_webui(
             _required_title(payload), str(payload.get("description") or "")
         )
         run = active_core.run_task(task.id, max_rounds=_max_rounds(payload))
+        mark_current_repository_used()
         return {"task_id": task.id, "run_id": run.id, "detail_url": f"/ui/runs/{run.id}"}
 
     @app.get("/ui/runs/{run_id}", response_class=HTMLResponse)
@@ -149,6 +168,23 @@ def _max_rounds(payload: dict[str, Any]) -> int:
     if max_rounds < 1:
         raise HTTPException(status_code=400, detail="max_rounds must be at least 1")
     return max_rounds
+
+
+def _choose_repository_directory() -> Path | None:
+    """Open the local Windows directory picker and return the selected folder."""
+    try:
+        from tkinter import Tk, filedialog
+    except ImportError as exc:
+        raise HTTPException(status_code=501, detail="Native directory picker is unavailable") from exc
+
+    root = Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    try:
+        selected = filedialog.askdirectory(title="Select repository folder", mustexist=True)
+    finally:
+        root.destroy()
+    return Path(selected) if selected else None
 
 
 __all__ = ["include_webui"]

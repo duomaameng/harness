@@ -23,7 +23,7 @@ from harness.domain import (
 )
 from harness.feedback import FeedbackEngine
 from harness.guardrails import Guardrail
-from harness.llm import LLMClient
+from harness.llm import LLMClient, LLMClientError, LLMTimeoutError
 from harness.profiler import TaskProfiler
 from harness.storage import HarnessStorage, _redact
 from harness.tools import ToolDispatcher
@@ -96,9 +96,14 @@ class AgentRunner:
                 task_request=task["description"] or task["title"],
             )
             context = self._context_for_package(package.items)
-            action_text = self.llm.complete(
-                self._messages(task, profile, context, prior_actions, prior_feedback)
-            )
+            try:
+                action_text = self.llm.complete(
+                    self._messages(task, profile, context, prior_actions, prior_feedback)
+                )
+            except LLMTimeoutError:
+                return self._finish(run, TaskStatus.STOPPED.value, "model_timeout")
+            except LLMClientError:
+                return self._finish(run, TaskStatus.FAILED.value, "model_request_failed")
             action, schema_feedback = self.parser.parse(action_text)
             action.task_run_id = run.id
             action.round_index = round_index

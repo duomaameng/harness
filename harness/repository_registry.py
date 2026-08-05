@@ -33,10 +33,32 @@ class RepositoryRegistry:
             "path": normalized_path,
             "name": repository_path.name,
         }
-        state["repositories"].append(repository)
+        state["repositories"].insert(0, repository)
         state["current_repository_id"] = repository["id"]
         self._write(state)
         return repository
+
+    def register_or_select(self, path: str | Path) -> dict[str, str]:
+        """Register a directory, or select it when it is already registered."""
+        repository_path = Path(path).expanduser().resolve()
+        if not repository_path.is_dir():
+            raise ValueError(f"Repository path must be an existing directory: {repository_path}")
+
+        state = self._read()
+        normalized_path = str(repository_path)
+        repository = next(
+            (
+                item for item in state["repositories"]
+                if item["path"] == normalized_path
+            ),
+            None,
+        )
+        if repository is not None:
+            state["current_repository_id"] = repository["id"]
+            self._write(state)
+            return repository
+
+        return self.register(repository_path)
 
     def list(self) -> list[dict[str, str]]:
         return self._read()["repositories"]
@@ -49,6 +71,15 @@ class RepositoryRegistry:
         state = self._read()
         repository = self._required(state, repository_id)
         state["current_repository_id"] = repository_id
+        self._write(state)
+        return repository
+
+    def mark_used(self, repository_id: str) -> dict[str, str]:
+        """Move a repository to the front after it is used successfully."""
+        state = self._read()
+        repository = self._required(state, repository_id)
+        state["repositories"].remove(repository)
+        state["repositories"].insert(0, repository)
         self._write(state)
         return repository
 

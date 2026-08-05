@@ -30,8 +30,23 @@ def _render_workbench(
         action_count = len(core.list_actions(run_id))
         feedback_count = len(core.list_feedback(run_id))
 
-    current_name = core.repo_path.name if core is not None else "No repository selected"
-    current_path = str(core.repo_path) if core is not None else "Add a repository to begin."
+    current_repository = next(
+        (
+            repository for repository in repositories or []
+            if repository["id"] == current_repository_id
+        ),
+        None,
+    )
+    current_name = (
+        current_repository["name"]
+        if current_repository is not None
+        else core.repo_path.name if core is not None else "No repository selected"
+    )
+    current_path = (
+        current_repository["path"]
+        if current_repository is not None
+        else str(core.repo_path) if core is not None else "Add a repository to begin."
+    )
     sidebar = _render_repository_sidebar(
         repositories, current_repository_id, tasks, runs, core is not None
     ) if repositories is not None else _render_repository_sidebar(
@@ -217,8 +232,7 @@ def _render_repository_sidebar(
     for repository in repositories:
         repository_id = escape(repository["id"])
         active = repository["id"] == current_repository_id
-        repository_summary = f"""<div class="repo-title-row"><h4 class="repo-title">{escape(repository['name'])}</h4><span class="badge">{'current' if active else 'available'}</span></div>
-  <p class="repo-path">{escape(repository['path'])}</p>"""
+        repository_summary = f"""<div class="repo-title-row"><div class="repo-name-with-path"><h4 class="repo-title">{escape(repository['name'])}</h4><span class="repo-path-tooltip" role="tooltip">{escape(repository['path'])}</span></div><span class="badge">{'current' if active else 'available'}</span></div>"""
         selection = (
             f'<div class="repo-head">{repository_summary}</div>'
             if active
@@ -239,7 +253,7 @@ def _render_repository_sidebar(
     empty_prompt = "" if has_current_repository else '<p class="empty">Add a repository to create or run tasks.</p>'
     return f"""<aside class="task-sidebar">
   <div class="sidebar-head"><p class="eyebrow">Repositories</p></div>
-  <form class="task-form repository-json-form" method="post" action="/ui/repositories"><label>Repository path<input class="input" name="path" required></label><button class="btn sidebar-action" type="submit">+ Add repository</button></form>
+  <button class="btn sidebar-action" type="button" data-repository-picker>+ Add repository</button>
   {empty_prompt}<div class="repo-list">{''.join(groups)}</div>
 </aside>{_render_repository_management_dialogs(repositories)}"""
 
@@ -617,7 +631,12 @@ def _style() -> str:
     .repo-select-card { display: block; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; font: inherit; }
     .repo-select-card:hover .repo-title { text-decoration: underline; }
     .repo-select-card:focus-visible { outline: 2px solid #243f63; outline-offset: 4px; border-radius: 4px; }
-    .repo-management-menu { position: relative; margin-top: 10px; }
+    .repo-name-with-path { position: relative; min-width: 0; }
+    .repo-path-tooltip { position: absolute; z-index: 2; top: calc(100% + 6px); left: 0; display: none; width: max-content; max-width: 250px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--ink); color: var(--panel); font-family: var(--mono); font-size: 12px; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; box-shadow: 0 8px 20px rgba(21,29,26,.18); }
+    .repo-name-with-path:hover .repo-path-tooltip,
+    .repo-name-with-path:focus-within .repo-path-tooltip { display: block; }
+    .task-sidebar .repository-json-form, .sidebar-action { margin-bottom: 14px; }
+    .repo-management-menu { position: relative; margin: 10px 0 14px; }
     .repo-management-menu summary { width: 34px; min-height: 34px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; font-weight: 900; list-style: none; }
     .repo-management-menu summary::-webkit-details-marker { display: none; }
     .repo-management-actions { position: absolute; z-index: 1; display: grid; min-width: 140px; margin-top: 6px; padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); box-shadow: 0 8px 20px rgba(21,29,26,.14); }
@@ -741,6 +760,17 @@ def _script() -> str:
           body: JSON.stringify(Object.fromEntries(new FormData(repositoryForm).entries())),
         });
         if (response.ok) window.location.reload();
+      });
+    });
+    document.querySelectorAll("[data-repository-picker]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        try {
+          const response = await fetch("/ui/repositories/pick", {method: "POST"});
+          if (response.status === 200) window.location.reload();
+        } finally {
+          button.disabled = false;
+        }
       });
     });
     document.querySelectorAll("[data-repository-action]").forEach((button) => {
