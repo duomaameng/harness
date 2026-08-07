@@ -10,7 +10,15 @@ from typer.testing import CliRunner
 
 from harness.api import create_app
 from harness.cli import app
-from harness.domain import Action, TaskRun, ToolResult
+from harness.domain import (
+    Action,
+    ApprovalRequest,
+    ContextItem,
+    ContextPackage,
+    Feedback,
+    TaskRun,
+    ToolResult,
+)
 from harness.llm import MockLLM, OpenAICompatibleClient
 from harness.service import CoreService
 
@@ -18,6 +26,102 @@ from harness.service import CoreService
 @pytest.fixture(autouse=True)
 def isolate_appdata(tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+
+
+def test_rename_task_updates_an_inactive_task_title(tmp_path):
+    repo = tmp_path / "rename-inactive-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    task = service.create_task("Original title")
+
+    renamed = service.rename_task(task.id, "Renamed task")
+
+    assert renamed["id"] == task.id
+    assert renamed["title"] == "Renamed task"
+    assert service.storage.get_task(task.id)["title"] == "Renamed task"
+
+
+def test_rename_task_rejects_a_task_with_an_active_run(tmp_path):
+    repo = tmp_path / "rename-active-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    task = service.create_task("Active task")
+    service.storage.create_task_run(TaskRun(task_id=task.id, status="running"))
+
+    with pytest.raises(ValueError, match="active"):
+        service.rename_task(task.id, "Blocked rename")
+
+    assert service.storage.get_task(task.id)["title"] == "Active task"
+
+
+def test_storage_rename_task_if_inactive_checks_activity_with_the_update(tmp_path):
+    repo = tmp_path / "atomic-rename-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    task = service.create_task("Atomic task")
+    service.storage.create_task_run(TaskRun(task_id=task.id, status="running"))
+
+    with pytest.raises(ValueError, match="active"):
+        service.storage.rename_task_if_inactive(task.id, "Blocked rename")
+
+    assert service.storage.get_task(task.id)["title"] == "Atomic task"
+
+
+def test_delete_task_cascades_stopped_run_actions_and_tool_results(tmp_path):
+    repo = tmp_path / "delete-inactive-repo"
+    repo.mkdir()
+    repository_file = repo / "keep-me.txt"
+    repository_file.write_text("repository content", encoding="utf-8")
+    service = CoreService(repo, llm=MockLLM([]))
+    task = service.create_task("Delete task")
+    run = service.storage.create_task_run(TaskRun(task_id=task.id, status="stopped"))
+    action = service.storage.create_action(Action(task_run_id=run.id, action_type="finish"))
+    result = service.storage.create_tool_result(ToolResult(action_id=action.id))
+    approval = service.storage.create_approval_request(ApprovalRequest(
+        task_run_id=run.id,
+        action_id=action.id,
+    ))
+    feedback = service.storage.create_feedback(Feedback(
+        task_run_id=run.id,
+        source="test",
+        category="assertion_failure",
+    ))
+    item = service.storage.create_context_item(ContextItem(
+        repo_path=str(repo),
+        kind="code_structure",
+    ))
+    package = service.storage.create_context_package(ContextPackage(
+        task_run_id=run.id,
+        items=[item.id],
+    ))
+
+    service.delete_task(task.id)
+
+    assert service.storage.get_task(task.id) is None
+    assert service.storage.get_task_run(run.id) is None
+    assert service.storage.get_action(action.id) is None
+    assert service.storage.get_tool_result(result.id) is None
+    assert service.storage.get_approval_request(approval.id) is None
+    assert service.storage.get_feedback(feedback.id) is None
+    assert service.storage.get_context_package(package.id) is None
+    assert service.storage._fetchone(
+        "SELECT 1 FROM context_package_item WHERE package_id=?", (package.id,)
+    ) is None
+    assert service.storage.get_context_item(item.id) is not None
+    assert repository_file.read_text(encoding="utf-8") == "repository content"
+
+
+def test_delete_task_rejects_a_task_waiting_for_approval(tmp_path):
+    repo = tmp_path / "delete-active-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    task = service.create_task("Waiting task")
+    service.storage.create_task_run(TaskRun(task_id=task.id, status="waiting_approval"))
+
+    with pytest.raises(ValueError, match="active"):
+        service.delete_task(task.id)
+
+    assert service.storage.get_task(task.id) is not None
 
 
 def test_repository_registry_persists_registration_selection_rename_and_safe_removal(tmp_path):
@@ -197,7 +301,7 @@ def test_webui_repository_switches_task_service_and_isolates_tasks(tmp_path):
 
     second = _endpoint(api, "/ui/repositories", "POST")({"path": str(second_repository_path)})
 
-    task = _endpoint(api, "/ui/tasks", "POST")({"title": "Only in second"})
+    task = _endpoint(api, "/ui/tasks", "POST")({"description": "Only in second"})
     html = _endpoint(api, "/", "GET")().body.decode("utf-8")
 
     assert registry.current() == second
@@ -267,9 +371,10 @@ def test_webui_task_creation_moves_the_used_repository_to_the_first_position(tmp
     registry.select(first["id"])
     api = create_app(CoreService(second_repository_path, llm=MockLLM([])), registry=registry)
 
-    _endpoint(api, "/ui/tasks", "POST")({"title": "Use first repository"})
+    _endpoint(api, "/ui/tasks", "POST")({"description": "Use first repository"})
 
     assert registry.list() == [first, second]
+    assert CoreService(first["path"]).list_tasks()[0]["title"] == "Use first repository"
 
 
 def test_webui_sidebar_keeps_the_current_repository_position_and_uses_its_display_name(tmp_path):
@@ -469,12 +574,13 @@ def test_webui_switch_uses_injected_service_factory(tmp_path):
     selected = _asgi_post(
         app, f"/ui/repositories/{second['id']}/select", follow_redirects=False
     )
-    response = _asgi_post(app, "/ui/tasks", json={"title": "Task in second"})
+    response = _asgi_post(app, "/ui/tasks", json={"description": "Task in second"})
 
     assert selected["status_code"] == 303
     assert response["status_code"] == 200
     assert len(created) == 1
     assert created[0].repo_path == second_path.resolve()
+    assert created[0].list_tasks()[0]["title"] == "Task in second"
 
 
 def test_cli_run_with_mock_llm_creates_task_run_and_context_trace(tmp_path):
@@ -989,22 +1095,127 @@ def test_webui_sidebar_task_links_to_its_run_detail(tmp_path):
     ) in html
 
 
+def test_webui_task_management_controls_only_render_for_inactive_tasks(tmp_path):
+    repo = tmp_path / "webui-task-management-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    api = create_app(service)
+    inactive = service.create_task("Rename me")
+    active = service.create_task("Keep running")
+    waiting = service.create_task("Awaiting approval")
+    service.storage.create_task_run(TaskRun(task_id=active.id, status="succeeded"))
+    service.storage.create_task_run(TaskRun(task_id=active.id, status="running"))
+    service.storage.create_task_run(TaskRun(task_id=waiting.id, status="waiting_approval"))
+
+    html = _endpoint(api, "/", "GET")().body.decode("utf-8")
+    sidebar_markup = re.search(
+        r'<aside class="task-sidebar">(.*?)</aside>', html, re.DOTALL
+    ).group(1)
+
+    assert 'class="task-management-menu"' in sidebar_markup
+    assert f'data-task-id="{inactive.id}"' in sidebar_markup
+    assert f'aria-label="Task management for Rename me"' in sidebar_markup
+    assert f'data-task-id="{active.id}"' not in sidebar_markup
+    assert f'data-task-id="{waiting.id}"' not in sidebar_markup
+    assert html.count('id="rename-task-dialog"') == 1
+    assert html.count('id="delete-task-dialog"') == 1
+    assert "Harness records are permanently removed but repository files are not deleted." in html
+    task_form = re.search(r'<form class="task-form" id="task-form">(.*?)</form>', html, re.DOTALL).group(1)
+    assert 'name="title"' not in task_form
+    assert ".task-management-menu { margin-left: auto; position: relative; }" in html
+
+
+def test_webui_task_creation_derives_a_normalized_32_character_title(tmp_path):
+    repo = tmp_path / "webui-derived-title-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    api = create_app(service)
+    description = "  " + "a" * 33 + "\n  remaining details  "
+
+    result = _endpoint(api, "/ui/tasks", "POST")({"description": description})
+
+    task = service.storage.get_task(result["task_id"])
+    assert task["title"] == "a" * 32
+    assert task["description"] == description
+
+
+def test_webui_task_creation_uses_unnamed_fallback_for_blank_description(tmp_path):
+    repo = tmp_path / "webui-blank-description-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    api = create_app(service)
+
+    result = _endpoint(api, "/ui/tasks", "POST")({"description": "  \n\t "})
+
+    assert (
+        service.storage.get_task(result["task_id"])["title"]
+        == "\u672a\u547d\u540d\u4efb\u52a1"
+    )
+
+
 def test_webui_create_and_run_endpoint_returns_detail_url(tmp_path):
     repo = tmp_path / "webui-create-run-repo"
     repo.mkdir()
     service = CoreService(repo, llm=MockLLM([]))
     api = create_app(service)
+    description = "  Create through WebUI form with extra\n whitespace preserved in description  "
 
     result = _endpoint(api, "/ui/tasks/run", "POST")({
-        "title": "Run from workbench",
-        "description": "Create through WebUI form",
+        "description": description,
         "max_rounds": 1,
     })
 
     assert result["task_id"]
     assert result["run_id"]
     assert result["detail_url"] == f"/ui/runs/{result['run_id']}"
-    assert service.get_status(result["run_id"])["task"]["title"] == "Run from workbench"
+    task = service.get_status(result["run_id"])["task"]
+    assert task["title"] == "Create through WebUI form with e"
+    assert task["description"] == description
+
+
+def test_webui_task_rename_and_delete_succeed_for_inactive_task(tmp_path):
+    repo = tmp_path / "webui-edit-inactive-task-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    api = create_app(service)
+    task = service.create_task("Original title")
+
+    renamed = _endpoint(api, "/ui/tasks/{task_id}/rename", "POST")(
+        task.id, {"title": "  Renamed task  "}
+    )
+    deleted = _endpoint(api, "/ui/tasks/{task_id}/delete", "POST")(task.id)
+
+    assert renamed["title"] == "Renamed task"
+    assert deleted.status_code == 303
+    assert deleted.headers["location"] == "/"
+    assert service.storage.get_task(task.id) is None
+
+
+def test_webui_task_rename_and_delete_reject_active_tasks_and_unknown_tasks(tmp_path):
+    repo = tmp_path / "webui-edit-active-task-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    api = create_app(service)
+    task = service.create_task("Active task")
+    service.storage.create_task_run(TaskRun(task_id=task.id, status="running"))
+
+    with pytest.raises(HTTPException) as rename_active:
+        _endpoint(api, "/ui/tasks/{task_id}/rename", "POST")(
+            task.id, {"title": "Renamed"}
+        )
+    with pytest.raises(HTTPException) as delete_active:
+        _endpoint(api, "/ui/tasks/{task_id}/delete", "POST")(task.id)
+    with pytest.raises(HTTPException) as rename_unknown:
+        _endpoint(api, "/ui/tasks/{task_id}/rename", "POST")(
+            "missing", {"title": "Renamed"}
+        )
+    with pytest.raises(HTTPException) as delete_unknown:
+        _endpoint(api, "/ui/tasks/{task_id}/delete", "POST")("missing")
+
+    assert rename_active.value.status_code == 400
+    assert delete_active.value.status_code == 400
+    assert rename_unknown.value.status_code == 404
+    assert delete_unknown.value.status_code == 404
 
 
 def test_webui_task_endpoints_return_bad_request_for_invalid_input(tmp_path):
@@ -1012,17 +1223,19 @@ def test_webui_task_endpoints_return_bad_request_for_invalid_input(tmp_path):
     repo.mkdir()
     service = CoreService(repo, llm=MockLLM([]))
     api = create_app(service)
+    task = service.create_task("Existing task")
 
-    with pytest.raises(HTTPException) as missing_title:
-        _endpoint(api, "/ui/tasks", "POST")({"title": "   "})
+    with pytest.raises(HTTPException) as blank_title:
+        _endpoint(api, "/ui/tasks/{task_id}/rename", "POST")(
+            task.id, {"title": "  \n\t "}
+        )
 
     with pytest.raises(HTTPException) as bad_rounds:
         _endpoint(api, "/ui/tasks/run", "POST")({
-            "title": "Run from workbench",
             "max_rounds": "bad",
         })
 
-    assert missing_title.value.status_code == 400
+    assert blank_title.value.status_code == 400
     assert bad_rounds.value.status_code == 400
 
 

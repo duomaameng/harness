@@ -110,8 +110,9 @@ def include_webui(
 
     @app.post("/ui/tasks")
     def create_task(payload: dict[str, Any]) -> dict[str, Any]:
+        description = str(payload.get("description") or "")
         task = current_core().create_task(
-            _required_title(payload), str(payload.get("description") or "")
+            _title_from_description(description), description
         )
         mark_current_repository_used()
         return {"task_id": task.id, "detail_url": None}
@@ -119,12 +120,32 @@ def include_webui(
     @app.post("/ui/tasks/run")
     def create_and_run_task(payload: dict[str, Any]) -> dict[str, Any]:
         active_core = current_core()
+        description = str(payload.get("description") or "")
         task = active_core.create_task(
-            _required_title(payload), str(payload.get("description") or "")
+            _title_from_description(description), description
         )
         run = active_core.run_task(task.id, max_rounds=_max_rounds(payload))
         mark_current_repository_used()
         return {"task_id": task.id, "run_id": run.id, "detail_url": f"/ui/runs/{run.id}"}
+
+    @app.post("/ui/tasks/{task_id}/rename")
+    def rename_task(task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        active_core = current_core()
+        _require_task(active_core, task_id)
+        try:
+            return active_core.rename_task(task_id, _required_title(payload))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/ui/tasks/{task_id}/delete")
+    def delete_task(task_id: str) -> RedirectResponse:
+        active_core = current_core()
+        _require_task(active_core, task_id)
+        try:
+            active_core.delete_task(task_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return RedirectResponse("/", status_code=303)
 
     @app.get("/ui/runs/{run_id}", response_class=HTMLResponse)
     def run_detail(run_id: str) -> HTMLResponse:
@@ -172,6 +193,17 @@ def _required_title(payload: dict[str, Any]) -> str:
     if not title:
         raise HTTPException(status_code=400, detail="Task title is required")
     return title
+
+
+def _title_from_description(description: str) -> str:
+    return " ".join(description.split())[:32] or "\u672a\u547d\u540d\u4efb\u52a1"
+
+
+def _require_task(service: CoreService, task_id: str) -> dict[str, Any]:
+    task = service.storage.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Unknown task: {task_id}")
+    return task
 
 
 def _max_rounds(payload: dict[str, Any]) -> int:

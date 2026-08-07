@@ -48,6 +48,12 @@ class CoreService:
             "SELECT * FROM task ORDER BY created_at DESC"
         )
 
+    def rename_task(self, task_id: str, title: str) -> dict:
+        return self.storage.rename_task_if_inactive(task_id, title)
+
+    def delete_task(self, task_id: str) -> None:
+        self.storage.delete_task_if_inactive(task_id)
+
     def list_runs(self) -> list[dict[str, Any]]:
         return self.storage._fetchall(
             "SELECT task_run.*, task.title AS task_title, "
