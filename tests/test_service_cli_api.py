@@ -20,6 +20,65 @@ def isolate_appdata(tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
 
 
+def test_rename_task_updates_an_inactive_task_title(tmp_path):
+    repo = tmp_path / "rename-inactive-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    task = service.create_task("Original title")
+
+    renamed = service.rename_task(task.id, "Renamed task")
+
+    assert renamed["id"] == task.id
+    assert renamed["title"] == "Renamed task"
+    assert service.storage.get_task(task.id)["title"] == "Renamed task"
+
+
+def test_rename_task_rejects_a_task_with_an_active_run(tmp_path):
+    repo = tmp_path / "rename-active-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    task = service.create_task("Active task")
+    service.storage.create_task_run(TaskRun(task_id=task.id, status="running"))
+
+    with pytest.raises(ValueError, match="active"):
+        service.rename_task(task.id, "Blocked rename")
+
+    assert service.storage.get_task(task.id)["title"] == "Active task"
+
+
+def test_delete_task_cascades_stopped_run_actions_and_tool_results(tmp_path):
+    repo = tmp_path / "delete-inactive-repo"
+    repo.mkdir()
+    repository_file = repo / "keep-me.txt"
+    repository_file.write_text("repository content", encoding="utf-8")
+    service = CoreService(repo, llm=MockLLM([]))
+    task = service.create_task("Delete task")
+    run = service.storage.create_task_run(TaskRun(task_id=task.id, status="stopped"))
+    action = service.storage.create_action(Action(task_run_id=run.id, action_type="finish"))
+    result = service.storage.create_tool_result(ToolResult(action_id=action.id))
+
+    service.delete_task(task.id)
+
+    assert service.storage.get_task(task.id) is None
+    assert service.storage.get_task_run(run.id) is None
+    assert service.storage.get_action(action.id) is None
+    assert service.storage.get_tool_result(result.id) is None
+    assert repository_file.read_text(encoding="utf-8") == "repository content"
+
+
+def test_delete_task_rejects_a_task_waiting_for_approval(tmp_path):
+    repo = tmp_path / "delete-active-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    task = service.create_task("Waiting task")
+    service.storage.create_task_run(TaskRun(task_id=task.id, status="waiting_approval"))
+
+    with pytest.raises(ValueError, match="active"):
+        service.delete_task(task.id)
+
+    assert service.storage.get_task(task.id) is not None
+
+
 def test_repository_registry_persists_registration_selection_rename_and_safe_removal(tmp_path):
     from harness.repository_registry import RepositoryRegistry
 

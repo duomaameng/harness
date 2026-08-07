@@ -362,6 +362,94 @@ class HarnessStorage:
     def get_task(self, task_id: str) -> dict | None:
         return self._fetchone("SELECT * FROM task WHERE id=?", (task_id,))
 
+    def rename_task(self, task_id: str, title: str) -> dict | None:
+        """Update a task title and return the updated task when it exists."""
+        conn = self._connect()
+        try:
+            cursor = conn.execute("UPDATE task SET title=? WHERE id=?", (title, task_id))
+            conn.commit()
+            if cursor.rowcount == 0:
+                return None
+            row = conn.execute("SELECT * FROM task WHERE id=?", (task_id,)).fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+
+    def delete_task(self, task_id: str) -> bool:
+        """Delete a task and its persisted run data in dependency order."""
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN")
+            task = conn.execute("SELECT id FROM task WHERE id=?", (task_id,)).fetchone()
+            if task is None:
+                conn.rollback()
+                return False
+
+            run_ids = [
+                row["id"]
+                for row in conn.execute(
+                    "SELECT id FROM task_run WHERE task_id=?", (task_id,)
+                ).fetchall()
+            ]
+            if run_ids:
+                placeholders = ", ".join("?" for _ in run_ids)
+                action_ids = [
+                    row["id"]
+                    for row in conn.execute(
+                        f"SELECT id FROM action WHERE task_run_id IN ({placeholders})",
+                        run_ids,
+                    ).fetchall()
+                ]
+                package_ids = [
+                    row["id"]
+                    for row in conn.execute(
+                        f"SELECT id FROM context_package WHERE task_run_id IN ({placeholders})",
+                        run_ids,
+                    ).fetchall()
+                ]
+
+                conn.execute(
+                    f"DELETE FROM approval_request WHERE task_run_id IN ({placeholders})",
+                    run_ids,
+                )
+                if action_ids:
+                    action_placeholders = ", ".join("?" for _ in action_ids)
+                    conn.execute(
+                        f"DELETE FROM tool_result WHERE action_id IN ({action_placeholders})",
+                        action_ids,
+                    )
+                conn.execute(
+                    f"DELETE FROM action WHERE task_run_id IN ({placeholders})",
+                    run_ids,
+                )
+                conn.execute(
+                    f"DELETE FROM feedback WHERE task_run_id IN ({placeholders})",
+                    run_ids,
+                )
+                if package_ids:
+                    package_placeholders = ", ".join("?" for _ in package_ids)
+                    conn.execute(
+                        f"DELETE FROM context_package_item WHERE package_id IN ({package_placeholders})",
+                        package_ids,
+                    )
+                conn.execute(
+                    f"DELETE FROM context_package WHERE task_run_id IN ({placeholders})",
+                    run_ids,
+                )
+                conn.execute(
+                    f"DELETE FROM task_run WHERE id IN ({placeholders})",
+                    run_ids,
+                )
+
+            conn.execute("DELETE FROM task WHERE id=?", (task_id,))
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
     # -- task_run ----------------------------------------------------
 
     def create_task_run(self, run: TaskRun) -> TaskRun:
