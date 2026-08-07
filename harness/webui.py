@@ -608,8 +608,8 @@ def _style() -> str:
     .btn.reject { background: var(--red); border-color: var(--red); color: white; }
     .btn:disabled { opacity: .55; cursor: not-allowed; }
     .view-toggle { position: absolute; opacity: 0; pointer-events: none; }
-    .dashboard-shell { display: grid; grid-template-columns: 320px minmax(0, 1fr); min-height: calc(100vh - 67px); }
-    .task-sidebar { border-right: 1px solid var(--line); padding: 24px 18px; background: rgba(255,253,247,.62); }
+    .dashboard-shell { display: grid; grid-template-columns: 320px minmax(0, 1fr); height: calc(100vh - 67px); overflow: hidden; }
+    .task-sidebar { min-height: 0; overflow-y: auto; border-right: 1px solid var(--line); padding: 24px 18px; background: rgba(255,253,247,.62); }
     .sidebar-head, .repo-title-row, .section-head, .panel-header, .run-hero-top { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; }
     .repo-list { display: grid; gap: 14px; }
     .repo-group, .panel, .run-hero { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
@@ -640,7 +640,7 @@ def _style() -> str:
     .task-item { display: block; border-top: 1px solid var(--line); padding: 12px 0; color: inherit; text-decoration: none; }
     a.task-item:hover { background: rgba(21,29,26,.04); }
     .task-item-title { margin: 7px 0 0; font-size: 15px; }
-    .main-view, .detail-shell { padding: 28px; }
+    .main-view, .detail-shell { min-height: 0; overflow-y: auto; padding: 28px; }
     .section-head { margin-bottom: 18px; }
     .section-head h2 { margin: 0; max-width: 780px; font-size: clamp(30px, 4vw, 52px); line-height: 1; letter-spacing: 0; }
     .workbench-title { margin: 0; font-size: clamp(28px, 3vw, 36px); line-height: 1.1; }
@@ -706,7 +706,9 @@ def _style() -> str:
     .legacy-test-labels { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
     @media (max-width: 980px) {
       .dashboard-shell, .detail-layout { grid-template-columns: 1fr; }
+      .dashboard-shell { height: auto; overflow: visible; }
       .task-sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
+      .task-sidebar, .main-view, .detail-shell { overflow: visible; }
       .section-head, .run-hero-top { flex-direction: column; }
       .stat-band, .evidence-strip { grid-template-columns: 1fr; }
     }
