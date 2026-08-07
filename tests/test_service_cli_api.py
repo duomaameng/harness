@@ -46,6 +46,24 @@ def test_webui_event_hub_delivers_opaque_run_refresh_events():
     assert set(event) == {"type", "run_id", "repository", "timestamp"}
 
 
+def test_webui_event_hub_coalesces_pending_run_refresh_events():
+    async def receive_event():
+        hub = WebUIEventHub()
+        queue = hub.subscribe_run("repo", "run-1")
+
+        for _ in range(3):
+            hub.publish_run_update("repo", "run-1")
+        await asyncio.sleep(0)
+
+        return queue.maxsize, queue.qsize(), await queue.get()
+
+    maxsize, pending, event = asyncio.run(receive_event())
+
+    assert maxsize == 1
+    assert pending == 1
+    assert event["type"] == "run_updated"
+
+
 def test_core_service_publishes_runner_visible_changes_to_optional_callback(tmp_path):
     repo = tmp_path / "event-publisher-repo"
     repo.mkdir()
@@ -65,6 +83,49 @@ def test_core_service_publishes_runner_visible_changes_to_optional_callback(tmp_
     assert published
     assert all(repository == str(repo.resolve()) for repository, _ in published)
     assert all(run_id == run.id for _, run_id in published)
+
+
+def test_core_service_preserves_a_falsey_event_publisher(tmp_path):
+    class FalseyPublisher:
+        def __init__(self):
+            self.calls: list[tuple[str, str]] = []
+
+        def __bool__(self):
+            return False
+
+        def __call__(self, repository, run_id):
+            self.calls.append((repository, run_id))
+
+    repo = tmp_path / "falsey-event-publisher-repo"
+    repo.mkdir()
+    publisher = FalseyPublisher()
+    service = CoreService(repo, llm=MockLLM([]), event_publisher=publisher)
+
+    service._publish_run_update("run-1")
+
+    assert publisher.calls == [(str(repo.resolve()), "run-1")]
+
+
+def test_runner_continues_when_event_publisher_raises(tmp_path):
+    repo = tmp_path / "failing-event-publisher-repo"
+    repo.mkdir()
+
+    def fail_to_publish(repository, run_id):
+        raise RuntimeError("publisher unavailable")
+
+    service = CoreService(
+        repo,
+        llm=MockLLM([
+            '{"thought_summary":"complete","action":"finish",'
+            '"args":{"summary":"finished"}}'
+        ]),
+        event_publisher=fail_to_publish,
+    )
+    task = service.create_task("Ignore publisher failure")
+
+    run = service.run_task(task.id, max_rounds=1)
+
+    assert run.status == "succeeded"
 
 
 def test_rename_task_updates_an_inactive_task_title(tmp_path):

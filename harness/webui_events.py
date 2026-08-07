@@ -66,7 +66,7 @@ class WebUIEventHub:
         for subscription in subscriptions:
             try:
                 subscription.loop.call_soon_threadsafe(
-                    subscription.queue.put_nowait, event.copy()
+                    self._enqueue, subscription.queue, event.copy()
                 )
             except RuntimeError:
                 self.unsubscribe_run(repository, run_id, subscription.queue)
@@ -75,7 +75,7 @@ class WebUIEventHub:
     def _new_subscription() -> _Subscription:
         return _Subscription(
             loop=asyncio.get_running_loop(),
-            queue=asyncio.Queue(),
+            queue=asyncio.Queue(maxsize=1),
         )
 
     def _unsubscribe(self, subscriptions: dict, key: object, queue: asyncio.Queue[WebUIEvent]) -> None:
@@ -88,3 +88,10 @@ class WebUIEventHub:
                     matching.remove(subscription)
             if not matching:
                 subscriptions.pop(key, None)
+
+    @staticmethod
+    def _enqueue(queue: asyncio.Queue[WebUIEvent], event: WebUIEvent) -> None:
+        try:
+            queue.put_nowait(event)
+        except asyncio.QueueFull:
+            pass

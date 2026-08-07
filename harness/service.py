@@ -36,7 +36,11 @@ class CoreService:
         self.validation_commands = validation_commands
         self.memory_store = MemoryStore(self.storage)
         self.webui_events = WebUIEventHub()
-        self._event_publisher = event_publisher or self.webui_events.publish_run_update
+        self._event_publisher = (
+            self.webui_events.publish_run_update
+            if event_publisher is None
+            else event_publisher
+        )
 
     def init(self) -> Path:
         self.storage.init()
@@ -154,7 +158,10 @@ class CoreService:
         return self.storage.get_approval_request(approval_id) or {}
 
     def _publish_run_update(self, run_id: str) -> None:
-        self._event_publisher(str(self.repo_path), run_id)
+        try:
+            self._event_publisher(str(self.repo_path), run_id)
+        except Exception:
+            pass
 
     def record_memory(
         self,

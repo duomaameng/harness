@@ -444,4 +444,7 @@ class AgentRunner:
 
     def _publish_run_update(self, run_id: str) -> None:
         if self._event_publisher is not None:
-            self._event_publisher(run_id)
+            try:
+                self._event_publisher(run_id)
+            except Exception:
+                pass
