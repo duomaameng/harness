@@ -1083,16 +1083,19 @@ def test_webui_create_and_run_endpoint_returns_detail_url(tmp_path):
     repo.mkdir()
     service = CoreService(repo, llm=MockLLM([]))
     api = create_app(service)
+    description = "  Create through WebUI form with extra\n whitespace preserved in description  "
 
     result = _endpoint(api, "/ui/tasks/run", "POST")({
-        "description": "Create through WebUI form",
+        "description": description,
         "max_rounds": 1,
     })
 
     assert result["task_id"]
     assert result["run_id"]
     assert result["detail_url"] == f"/ui/runs/{result['run_id']}"
-    assert service.get_status(result["run_id"])["task"]["title"] == "Create through WebUI form"
+    task = service.get_status(result["run_id"])["task"]
+    assert task["title"] == "Create through WebUI form with e"
+    assert task["description"] == description
 
 
 def test_webui_task_rename_and_delete_succeed_for_inactive_task(tmp_path):
