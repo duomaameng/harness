@@ -23,6 +23,8 @@ class WebUIEvent(TypedDict):
 class _Subscription:
     loop: asyncio.AbstractEventLoop
     queue: asyncio.Queue[WebUIEvent]
+    pending: bool = False
+    active: bool = True
 
 
 class WebUIEventHub:
@@ -62,11 +64,15 @@ class WebUIEventHub:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         with self._lock:
-            subscriptions = tuple(self._run_subscriptions.get((repository, run_id), ()))
+            subscriptions = []
+            for subscription in self._run_subscriptions.get((repository, run_id), ()):
+                if subscription.active and not subscription.pending:
+                    subscription.pending = True
+                    subscriptions.append(subscription)
         for subscription in subscriptions:
             try:
                 subscription.loop.call_soon_threadsafe(
-                    self._enqueue, subscription.queue, event.copy()
+                    self._enqueue, subscription, event.copy()
                 )
             except RuntimeError:
                 self.unsubscribe_run(repository, run_id, subscription.queue)
@@ -85,13 +91,18 @@ class WebUIEventHub:
                 return
             for subscription in tuple(matching):
                 if subscription.queue is queue:
+                    subscription.active = False
+                    subscription.pending = False
                     matching.remove(subscription)
             if not matching:
                 subscriptions.pop(key, None)
 
-    @staticmethod
-    def _enqueue(queue: asyncio.Queue[WebUIEvent], event: WebUIEvent) -> None:
-        try:
-            queue.put_nowait(event)
-        except asyncio.QueueFull:
-            pass
+    def _enqueue(self, subscription: _Subscription, event: WebUIEvent) -> None:
+        with self._lock:
+            subscription.pending = False
+            if not subscription.active:
+                return
+            try:
+                subscription.queue.put_nowait(event)
+            except asyncio.QueueFull:
+                pass

@@ -64,6 +64,28 @@ def test_webui_event_hub_coalesces_pending_run_refresh_events():
     assert event["type"] == "run_updated"
 
 
+def test_webui_event_hub_schedules_one_callback_while_subscriber_loop_is_paused(monkeypatch):
+    async def publish_without_draining_loop():
+        hub = WebUIEventHub()
+        hub.subscribe_run("repo", "run-1")
+        loop = asyncio.get_running_loop()
+        scheduled = 0
+        call_soon_threadsafe = loop.call_soon_threadsafe
+
+        def count_scheduled_callback(*args, **kwargs):
+            nonlocal scheduled
+            scheduled += 1
+            return call_soon_threadsafe(*args, **kwargs)
+
+        monkeypatch.setattr(loop, "call_soon_threadsafe", count_scheduled_callback)
+        for _ in range(100):
+            hub.publish_run_update("repo", "run-1")
+
+        return scheduled
+
+    assert asyncio.run(publish_without_draining_loop()) == 1
+
+
 def test_core_service_publishes_runner_visible_changes_to_optional_callback(tmp_path):
     repo = tmp_path / "event-publisher-repo"
     repo.mkdir()
