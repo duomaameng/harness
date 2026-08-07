@@ -94,7 +94,6 @@ def _render_workbench(
               <div class="current-repo-path">{escape(current_path)}</div>
             </div>
             <form class="task-form" id="task-form">
-              <label>标题<input class="input" name="title" required></label>
               <label>描述<textarea class="textarea" name="description" rows="7"></textarea></label>
               <label class="rounds">轮次<input class="input" name="max_rounds" type="number" min="1" max="12" value="1"></label>
               <div class="button-row">
@@ -243,7 +242,7 @@ def _render_repository_sidebar(
   <div class="sidebar-head"><p class="eyebrow">Repositories</p></div>
   <button class="btn sidebar-action" type="button" data-repository-picker>+ Add repository</button>
   {empty_prompt}<div class="repo-list">{''.join(groups)}</div>
-</aside>{_render_repository_management_dialogs(repositories)}"""
+</aside>{_render_repository_management_dialogs(repositories)}{_render_task_management_dialogs(tasks)}"""
 
 
 def _render_repository_management_dialogs(repositories: list[dict[str, str]]) -> str:
@@ -264,20 +263,52 @@ def _render_repository_management_dialogs(repositories: list[dict[str, str]]) ->
 </dialog>"""
 
 
+def _render_task_management_dialogs(tasks: list[dict[str, Any]]) -> str:
+    default_task_id = escape(str(tasks[0].get("id") or "")) if tasks else ""
+    return f"""<dialog id="rename-task-dialog" aria-labelledby="rename-task-title">
+  <form class="task-json-form dialog-form" method="post" action="/ui/tasks/{default_task_id}/rename">
+    <h3 id="rename-task-title">Rename task</h3>
+    <label>Title<input class="input" name="title" required></label>
+    <div class="button-row"><button class="btn" type="submit">Save</button><button class="btn secondary" type="button" data-dialog-cancel>Cancel</button></div>
+  </form>
+</dialog>
+<dialog id="delete-task-dialog" aria-labelledby="delete-task-title">
+  <form class="task-json-form dialog-form" method="post" action="/ui/tasks/{default_task_id}/delete">
+    <h3 id="delete-task-title">Delete task</h3>
+    <p>Harness records are permanently removed but repository files are not deleted.</p>
+    <div class="button-row"><button class="btn reject" type="submit">Delete</button><button class="btn secondary" type="button" data-dialog-cancel>Cancel</button></div>
+  </form>
+</dialog>"""
+
+
 def _render_sidebar_tasks(tasks: list[dict[str, Any]], runs: list[dict[str, Any]]) -> str:
-    by_task = {run.get("task_id"): run for run in runs}
+    runs_by_task: dict[Any, list[dict[str, Any]]] = {}
+    for run in runs:
+        runs_by_task.setdefault(run.get("task_id"), []).append(run)
     if not tasks:
         return '<p class="empty">还没有任务。</p>'
     items = []
     for task in tasks:
-        run = by_task.get(task.get("id"))
+        task_id = str(task.get("id") or "")
+        task_runs = runs_by_task.get(task.get("id"), [])
+        run = task_runs[-1] if task_runs else None
         status = escape(str((run or {}).get("status") or task.get("status") or "pending"))
         title = escape(str(task.get("title") or "Untitled task"))
         content = f'<span class="badge">{status}</span><h5 class="task-item-title">{title}</h5>'
+        controls = ""
+        if not any(run.get("status") in {"running", "waiting_approval"} for run in task_runs):
+            controls = f"""<details class="task-management-menu">
+  <summary aria-label="Task management for {title}" title="Task management">⋯</summary>
+  <div class="task-management-actions">
+    <button type="button" data-task-action="rename" data-task-id="{escape(task_id)}" data-task-title="{title}" aria-label="Rename {title}">Rename</button>
+    <button type="button" data-task-action="delete" data-task-id="{escape(task_id)}" data-task-title="{title}" aria-label="Delete {title}">Delete</button>
+  </div>
+</details>"""
         if run:
-            items.append(f'<a class="task-item" href="/ui/runs/{escape(str(run.get("id")))}">{content}</a>')
+            item = f'<a class="task-item" href="/ui/runs/{escape(str(run.get("id")))}">{content}</a>'
         else:
-            items.append(f'<article class="task-item">{content}</article>')
+            item = f'<div class="task-item">{content}</div>'
+        items.append(f'<article class="task-item-row">{item}{controls}</article>')
     return "".join(items)
 
 
@@ -639,9 +670,16 @@ def _style() -> str:
     .repo-title { margin: 0; font-size: 18px; }
     .repo-path, .current-repo-path, .panel-note, .section-summary, .context-reason, .item-meta, .empty, .task-status-note { color: var(--muted); }
     .repo-path, .current-repo-path, .excerpt, pre { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
-    .task-item { display: block; border-top: 1px solid var(--line); padding: 12px 0; color: inherit; text-decoration: none; }
+    .task-item-row { display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--line); }
+    .task-item { display: block; min-width: 0; flex: 1; padding: 12px 0; color: inherit; text-decoration: none; }
     a.task-item:hover { background: rgba(21,29,26,.04); }
     .task-item-title { margin: 7px 0 0; font-size: 15px; }
+    .task-management-menu { margin-left: auto; position: relative; }
+    .task-management-menu summary { width: 34px; min-height: 34px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; font-weight: 900; list-style: none; }
+    .task-management-menu summary::-webkit-details-marker { display: none; }
+    .task-management-actions { position: absolute; z-index: 1; right: 0; display: grid; min-width: 140px; margin-top: 6px; padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); box-shadow: 0 8px 20px rgba(21,29,26,.14); }
+    .task-management-actions button { padding: 8px; border: 0; border-radius: 4px; background: transparent; color: var(--ink); text-align: left; cursor: pointer; font: inherit; }
+    .task-management-actions button:hover, .task-management-actions button:focus-visible { background: var(--paper); }
     .main-view, .detail-shell { min-height: 0; overflow-y: auto; padding: 28px; }
     .section-head { margin-bottom: 18px; }
     .section-head h2 { margin: 0; max-width: 780px; font-size: clamp(30px, 4vw, 52px); line-height: 1; letter-spacing: 0; }
@@ -756,6 +794,17 @@ def _script() -> str:
         if (response.ok) window.location.reload();
       });
     });
+    document.querySelectorAll(".task-json-form").forEach((taskForm) => {
+      taskForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const response = await fetch(taskForm.action, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(Object.fromEntries(new FormData(taskForm).entries())),
+        });
+        if (response.ok) window.location.reload();
+      });
+    });
     document.querySelectorAll("[data-repository-picker]").forEach((button) => {
       button.addEventListener("click", async () => {
         button.disabled = true;
@@ -775,6 +824,18 @@ def _script() -> str:
         dialogForm.action = `/ui/repositories/${button.dataset.repositoryId}/${button.dataset.repositoryAction}`;
         const nameInput = dialogForm.elements.namedItem("name");
         if (nameInput) nameInput.value = button.dataset.repositoryName;
+        button.closest("details")?.removeAttribute("open");
+        dialog.showModal();
+      });
+    });
+    document.querySelectorAll("[data-task-action]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const dialog = document.querySelector(`#${button.dataset.taskAction}-task-dialog`);
+        const dialogForm = dialog?.querySelector("form");
+        if (!dialog || !dialogForm) return;
+        dialogForm.action = `/ui/tasks/${button.dataset.taskId}/${button.dataset.taskAction}`;
+        const titleInput = dialogForm.elements.namedItem("title");
+        if (titleInput) titleInput.value = button.dataset.taskTitle;
         button.closest("details")?.removeAttribute("open");
         dialog.showModal();
       });

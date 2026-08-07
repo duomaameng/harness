@@ -1050,6 +1050,36 @@ def test_webui_sidebar_task_links_to_its_run_detail(tmp_path):
     ) in html
 
 
+def test_webui_task_management_controls_only_render_for_inactive_tasks(tmp_path):
+    repo = tmp_path / "webui-task-management-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    api = create_app(service)
+    inactive = service.create_task("Rename me")
+    active = service.create_task("Keep running")
+    waiting = service.create_task("Awaiting approval")
+    service.storage.create_task_run(TaskRun(task_id=active.id, status="succeeded"))
+    service.storage.create_task_run(TaskRun(task_id=active.id, status="running"))
+    service.storage.create_task_run(TaskRun(task_id=waiting.id, status="waiting_approval"))
+
+    html = _endpoint(api, "/", "GET")().body.decode("utf-8")
+    sidebar_markup = re.search(
+        r'<aside class="task-sidebar">(.*?)</aside>', html, re.DOTALL
+    ).group(1)
+
+    assert 'class="task-management-menu"' in sidebar_markup
+    assert f'data-task-id="{inactive.id}"' in sidebar_markup
+    assert f'aria-label="Task management for Rename me"' in sidebar_markup
+    assert f'data-task-id="{active.id}"' not in sidebar_markup
+    assert f'data-task-id="{waiting.id}"' not in sidebar_markup
+    assert html.count('id="rename-task-dialog"') == 1
+    assert html.count('id="delete-task-dialog"') == 1
+    assert "Harness records are permanently removed but repository files are not deleted." in html
+    task_form = re.search(r'<form class="task-form" id="task-form">(.*?)</form>', html, re.DOTALL).group(1)
+    assert 'name="title"' not in task_form
+    assert ".task-management-menu { margin-left: auto; position: relative; }" in html
+
+
 def test_webui_task_creation_derives_a_normalized_32_character_title(tmp_path):
     repo = tmp_path / "webui-derived-title-repo"
     repo.mkdir()
