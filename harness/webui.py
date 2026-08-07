@@ -124,6 +124,7 @@ def _render_workbench(
 
 
 def _render_run_detail(core: CoreService, run_id: str) -> str:
+    rendered_version = core.webui_events.run_version(str(core.repo_path), run_id)
     status = core.get_status(run_id)
     run = status["run"]
     task = status["task"] or {}
@@ -204,7 +205,7 @@ def _render_run_detail(core: CoreService, run_id: str) -> str:
       </aside>
     </div>
   </main>
-  {_run_detail_refresh_script(core, run_id)}
+  {_run_detail_refresh_script(run_id, rendered_version)}
 </body>
 </html>"""
 
@@ -757,10 +758,9 @@ def _style() -> str:
   </style>"""
 
 
-def _run_detail_refresh_script(core: CoreService, run_id: str) -> str:
+def _run_detail_refresh_script(run_id: str, rendered_version: int) -> str:
     """Reconnect for opaque run refresh hints without maintaining client-side state."""
     safe_run_id = json.dumps(run_id)
-    rendered_version = core.webui_events.run_version(str(core.repo_path), run_id)
     return f"""<script>
     (() => {{
       const runId = {safe_run_id};

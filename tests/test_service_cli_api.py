@@ -1592,6 +1592,29 @@ def test_webui_run_detail_snapshot_client_reconnects_without_reload_loop(tmp_pat
     assert "Math.min(reconnectDelay * 2, maxReconnectDelay)" in html
 
 
+def test_webui_run_detail_uses_revision_captured_before_state_rendering(tmp_path, monkeypatch):
+    from harness.webui import _render_run_detail
+
+    repo = tmp_path / "websocket-render-revision-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    task = service.create_task("Render revision")
+    run = service.run_task(task.id, max_rounds=1)
+    initial_version = service.webui_events.run_version(str(repo.resolve()), run.id)
+    original_get_status = service.get_status
+
+    def update_while_rendering(run_id):
+        service.webui_events.publish_run_update(str(repo.resolve()), run.id)
+        return original_get_status(run_id)
+
+    monkeypatch.setattr(service, "get_status", update_while_rendering)
+
+    html = _render_run_detail(service, run.id)
+
+    assert f"const renderedVersion = {initial_version};" in html
+    assert service.webui_events.run_version(str(repo.resolve()), run.id) > initial_version
+
+
 def test_webui_run_detail_shows_human_readable_finish_result(tmp_path):
     repo = tmp_path / "webui-readable-result-repo"
     repo.mkdir()
