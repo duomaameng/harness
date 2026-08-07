@@ -375,6 +375,22 @@ class HarnessStorage:
         finally:
             conn.close()
 
+    def rename_task_if_inactive(self, task_id: str, title: str) -> dict:
+        """Atomically rename an existing task that has no active runs."""
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            self._require_inactive_task(conn, task_id)
+            conn.execute("UPDATE task SET title=? WHERE id=?", (title, task_id))
+            row = conn.execute("SELECT * FROM task WHERE id=?", (task_id,)).fetchone()
+            conn.commit()
+            return dict(row)
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
     def delete_task(self, task_id: str) -> bool:
         """Delete a task and its persisted run data in dependency order."""
         conn = self._connect()
@@ -450,10 +466,120 @@ class HarnessStorage:
         finally:
             conn.close()
 
+    def delete_task_if_inactive(self, task_id: str) -> None:
+        """Atomically delete an existing task that has no active runs."""
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            self._require_inactive_task(conn, task_id)
+            self._delete_task_rows(conn, task_id)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _require_inactive_task(conn: sqlite3.Connection, task_id: str) -> None:
+        task = conn.execute("SELECT id FROM task WHERE id=?", (task_id,)).fetchone()
+        if task is None:
+            raise ValueError(f"Unknown task: {task_id}")
+        active_run = conn.execute(
+            "SELECT id FROM task_run WHERE task_id=? "
+            "AND status IN ('running', 'waiting_approval')",
+            (task_id,),
+        ).fetchone()
+        if active_run is not None:
+            raise ValueError(f"Cannot modify active task: {task_id}")
+
+    @staticmethod
+    def _delete_task_rows(conn: sqlite3.Connection, task_id: str) -> None:
+        run_ids = [
+            row["id"]
+            for row in conn.execute(
+                "SELECT id FROM task_run WHERE task_id=?", (task_id,)
+            ).fetchall()
+        ]
+        if run_ids:
+            placeholders = ", ".join("?" for _ in run_ids)
+            action_ids = [
+                row["id"]
+                for row in conn.execute(
+                    f"SELECT id FROM action WHERE task_run_id IN ({placeholders})",
+                    run_ids,
+                ).fetchall()
+            ]
+            package_ids = [
+                row["id"]
+                for row in conn.execute(
+                    f"SELECT id FROM context_package WHERE task_run_id IN ({placeholders})",
+                    run_ids,
+                ).fetchall()
+            ]
+
+            conn.execute(
+                f"DELETE FROM approval_request WHERE task_run_id IN ({placeholders})",
+                run_ids,
+            )
+            if action_ids:
+                action_placeholders = ", ".join("?" for _ in action_ids)
+                conn.execute(
+                    f"DELETE FROM tool_result WHERE action_id IN ({action_placeholders})",
+                    action_ids,
+                )
+            conn.execute(
+                f"DELETE FROM action WHERE task_run_id IN ({placeholders})",
+                run_ids,
+            )
+            conn.execute(
+                f"DELETE FROM feedback WHERE task_run_id IN ({placeholders})",
+                run_ids,
+            )
+            if package_ids:
+                package_placeholders = ", ".join("?" for _ in package_ids)
+                conn.execute(
+                    f"DELETE FROM context_package_item WHERE package_id IN ({package_placeholders})",
+                    package_ids,
+                )
+            conn.execute(
+                f"DELETE FROM context_package WHERE task_run_id IN ({placeholders})",
+                run_ids,
+            )
+            conn.execute(
+                f"DELETE FROM task_run WHERE id IN ({placeholders})",
+                run_ids,
+            )
+
+        conn.execute("DELETE FROM task WHERE id=?", (task_id,))
+
     # -- task_run ----------------------------------------------------
 
     def create_task_run(self, run: TaskRun) -> TaskRun:
-        self._insert("task_run", run)
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                """INSERT INTO task_run (id, task_id, status, max_repair_rounds,
+                   current_round, stop_reason, started_at, finished_at)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (
+                    run.id,
+                    run.task_id,
+                    run.status,
+                    run.max_repair_rounds,
+                    run.current_round,
+                    run.stop_reason,
+                    run.started_at,
+                    run.finished_at,
+                ),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
         self.write_audit(make_audit_event("run.created", task_run_id=run.id,
                                           task_id=run.task_id))
         return run

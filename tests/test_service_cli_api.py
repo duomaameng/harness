@@ -10,7 +10,15 @@ from typer.testing import CliRunner
 
 from harness.api import create_app
 from harness.cli import app
-from harness.domain import Action, TaskRun, ToolResult
+from harness.domain import (
+    Action,
+    ApprovalRequest,
+    ContextItem,
+    ContextPackage,
+    Feedback,
+    TaskRun,
+    ToolResult,
+)
 from harness.llm import MockLLM, OpenAICompatibleClient
 from harness.service import CoreService
 
@@ -46,6 +54,19 @@ def test_rename_task_rejects_a_task_with_an_active_run(tmp_path):
     assert service.storage.get_task(task.id)["title"] == "Active task"
 
 
+def test_storage_rename_task_if_inactive_checks_activity_with_the_update(tmp_path):
+    repo = tmp_path / "atomic-rename-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    task = service.create_task("Atomic task")
+    service.storage.create_task_run(TaskRun(task_id=task.id, status="running"))
+
+    with pytest.raises(ValueError, match="active"):
+        service.storage.rename_task_if_inactive(task.id, "Blocked rename")
+
+    assert service.storage.get_task(task.id)["title"] == "Atomic task"
+
+
 def test_delete_task_cascades_stopped_run_actions_and_tool_results(tmp_path):
     repo = tmp_path / "delete-inactive-repo"
     repo.mkdir()
@@ -56,6 +77,23 @@ def test_delete_task_cascades_stopped_run_actions_and_tool_results(tmp_path):
     run = service.storage.create_task_run(TaskRun(task_id=task.id, status="stopped"))
     action = service.storage.create_action(Action(task_run_id=run.id, action_type="finish"))
     result = service.storage.create_tool_result(ToolResult(action_id=action.id))
+    approval = service.storage.create_approval_request(ApprovalRequest(
+        task_run_id=run.id,
+        action_id=action.id,
+    ))
+    feedback = service.storage.create_feedback(Feedback(
+        task_run_id=run.id,
+        source="test",
+        category="assertion_failure",
+    ))
+    item = service.storage.create_context_item(ContextItem(
+        repo_path=str(repo),
+        kind="code_structure",
+    ))
+    package = service.storage.create_context_package(ContextPackage(
+        task_run_id=run.id,
+        items=[item.id],
+    ))
 
     service.delete_task(task.id)
 
@@ -63,6 +101,13 @@ def test_delete_task_cascades_stopped_run_actions_and_tool_results(tmp_path):
     assert service.storage.get_task_run(run.id) is None
     assert service.storage.get_action(action.id) is None
     assert service.storage.get_tool_result(result.id) is None
+    assert service.storage.get_approval_request(approval.id) is None
+    assert service.storage.get_feedback(feedback.id) is None
+    assert service.storage.get_context_package(package.id) is None
+    assert service.storage._fetchone(
+        "SELECT 1 FROM context_package_item WHERE package_id=?", (package.id,)
+    ) is None
+    assert service.storage.get_context_item(item.id) is not None
     assert repository_file.read_text(encoding="utf-8") == "repository content"
 
 

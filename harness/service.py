@@ -49,16 +49,10 @@ class CoreService:
         )
 
     def rename_task(self, task_id: str, title: str) -> dict:
-        self._require_inactive_task(task_id)
-        renamed = self.storage.rename_task(task_id, title)
-        if renamed is None:
-            raise ValueError(f"Unknown task: {task_id}")
-        return renamed
+        return self.storage.rename_task_if_inactive(task_id, title)
 
     def delete_task(self, task_id: str) -> None:
-        self._require_inactive_task(task_id)
-        if not self.storage.delete_task(task_id):
-            raise ValueError(f"Unknown task: {task_id}")
+        self.storage.delete_task_if_inactive(task_id)
 
     def list_runs(self) -> list[dict[str, Any]]:
         return self.storage._fetchall(
@@ -228,19 +222,6 @@ class CoreService:
         if run is None:
             raise ValueError(f"Unknown task run: {run_id}")
         return run
-
-    def _require_inactive_task(self, task_id: str) -> dict[str, Any]:
-        task = self.storage.get_task(task_id)
-        if task is None:
-            raise ValueError(f"Unknown task: {task_id}")
-        active_run = self.storage._fetchone(
-            "SELECT id FROM task_run WHERE task_id=? "
-            "AND status IN ('running', 'waiting_approval')",
-            (task_id,),
-        )
-        if active_run is not None:
-            raise ValueError(f"Cannot modify active task: {task_id}")
-        return task
 
     def _context_item_payload(self, item_id: str) -> dict[str, Any]:
         item = self.storage.get_context_item(item_id)
