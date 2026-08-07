@@ -64,6 +64,23 @@ def test_webui_event_hub_coalesces_pending_run_refresh_events():
     assert event["type"] == "run_updated"
 
 
+def test_webui_event_hub_isolates_repository_subscribers():
+    async def receive_repository_event():
+        hub = WebUIEventHub()
+        first = hub.subscribe_repository("repo-a")
+        second = hub.subscribe_repository("repo-b")
+
+        hub.publish_run_update("repo-a", "run-1")
+
+        return await first.get(), second.empty()
+
+    event, second_is_empty = asyncio.run(receive_repository_event())
+
+    assert event["type"] == "workbench_updated"
+    assert set(event) == {"type", "timestamp"}
+    assert second_is_empty
+
+
 def test_webui_event_hub_schedules_one_callback_while_subscriber_loop_is_paused(monkeypatch):
     async def publish_without_draining_loop():
         hub = WebUIEventHub()
@@ -1488,6 +1505,109 @@ def test_webui_registers_run_and_workbench_websocket_routes(tmp_path):
 
     assert "/ui/ws/runs/{run_id}" in websocket_paths
     assert "/ui/ws/workbench" in websocket_paths
+
+
+def test_webui_workbench_websocket_sends_opaque_repository_updates(tmp_path):
+    repo = tmp_path / "websocket-workbench-delivery-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    task = service.create_task("Refresh workbench")
+    run = service.run_task(task.id, max_rounds=1)
+    api = create_app(service)
+
+    async def receive_events():
+        websocket = _FakeWebSocket()
+        endpoint = _websocket_endpoint(api, "/ui/ws/workbench")
+        connection = asyncio.create_task(endpoint(websocket))
+        while not websocket.sent:
+            await asyncio.sleep(0)
+        service.webui_events.publish_run_update(str(repo.resolve()), run.id)
+        while len(websocket.sent) < 2:
+            await asyncio.sleep(0)
+        websocket.disconnect()
+        await connection
+        return websocket.sent
+
+    snapshot, update = asyncio.run(receive_events())
+
+    assert snapshot["type"] == "workbench_snapshot"
+    assert isinstance(snapshot["version"], int)
+    assert update["type"] == "workbench_updated"
+    assert set(update) == {"type", "timestamp"}
+
+
+def test_webui_workbench_websocket_uses_only_current_repository(tmp_path):
+    from harness.repository_registry import RepositoryRegistry
+
+    first_repo = tmp_path / "websocket-workbench-first-repo"
+    second_repo = tmp_path / "websocket-workbench-second-repo"
+    first_repo.mkdir()
+    second_repo.mkdir()
+    registry = RepositoryRegistry(tmp_path / "application-config")
+    registry.register(first_repo)
+    registry.register(second_repo)
+    first_service = CoreService(first_repo, llm=MockLLM([]))
+    second_service = CoreService(second_repo, llm=MockLLM([]))
+    services = {
+        str(first_repo.resolve()): first_service,
+        str(second_repo.resolve()): second_service,
+    }
+    api = create_app(
+        first_service,
+        registry=registry,
+        service_factory=lambda path: services[str(path.resolve())],
+    )
+
+    async def receive_current_repository_snapshot():
+        websocket = _FakeWebSocket()
+        endpoint = _websocket_endpoint(api, "/ui/ws/workbench")
+        connection = asyncio.create_task(endpoint(websocket))
+        while not websocket.sent:
+            await asyncio.sleep(0)
+        first_service.webui_events.publish_run_update(str(first_repo.resolve()), "run-1")
+        await asyncio.sleep(0)
+        websocket.disconnect()
+        await connection
+        return websocket.sent
+
+    events = asyncio.run(receive_current_repository_snapshot())
+
+    assert events == [{"type": "workbench_snapshot", "version": 0}]
+
+
+def test_webui_workbench_includes_reconnecting_repository_refresh_client(tmp_path):
+    repo = tmp_path / "websocket-workbench-client-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+
+    html = _endpoint(create_app(service), "/", "GET")().body.decode("utf-8")
+
+    assert "/ui/ws/workbench" in html
+    assert 'event.type === "workbench_snapshot"' in html
+    assert 'event.type === "workbench_updated"' in html
+    assert "Math.min(reconnectDelay * 2, maxReconnectDelay)" in html
+    assert "window.location.reload()" in html
+
+
+def test_webui_workbench_captures_revision_before_rendering_state(tmp_path, monkeypatch):
+    from harness.webui import _render_workbench
+
+    repo = tmp_path / "websocket-workbench-render-revision-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    initial_version = service.webui_events.repository_version(str(repo.resolve()))
+    original_list_tasks = service.list_tasks
+
+    def update_while_rendering():
+        service.webui_events.publish_run_update(str(repo.resolve()), "run-1")
+        return original_list_tasks()
+
+    monkeypatch.setattr(service, "list_tasks", update_while_rendering)
+
+    html = _render_workbench(service)
+
+    assert f"const renderedVersion = {initial_version};" in html
+    assert service.webui_events.repository_version(str(repo.resolve())) > initial_version
 
 
 def test_webui_run_websocket_sends_snapshot_and_redacted_updates(tmp_path):

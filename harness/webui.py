@@ -16,6 +16,9 @@ def _render_workbench(
     repositories: list[dict[str, str]] | None = None,
     current_repository_id: str | None = None,
 ) -> str:
+    rendered_version = (
+        core.webui_events.repository_version(str(core.repo_path)) if core is not None else 0
+    )
     tasks = core.list_tasks() if core is not None else []
     runs = core.list_runs() if core is not None else []
     latest_run = runs[0] if runs else None
@@ -118,6 +121,7 @@ def _render_workbench(
       </section>
     </div>
   </main>
+  {_workbench_refresh_script(rendered_version)}
   {_script()}
 </body>
 </html>"""
@@ -779,6 +783,44 @@ def _run_detail_refresh_script(run_id: str, rendered_version: int) -> str:
             const event = JSON.parse(message.data);
             const snapshotChanged = event.type === "run_snapshot" && event.version !== renderedVersion;
             if ((snapshotChanged || event.type === "run_updated") && !reloadRequested) {{
+              reloadRequested = true;
+              window.location.reload();
+            }}
+          }} catch (_) {{
+            // Ignore malformed refresh hints; a manual refresh remains available.
+          }}
+        }};
+        socket.onclose = () => {{
+          if (reloadRequested) return;
+          window.setTimeout(connect, reconnectDelay);
+          reconnectDelay = Math.min(reconnectDelay * 2, maxReconnectDelay);
+        }};
+      }};
+
+      connect();
+    }})();
+  </script>"""
+
+
+def _workbench_refresh_script(rendered_version: int) -> str:
+    """Reconnect for opaque repository refresh hints without client-side state."""
+    return f"""<script>
+    (() => {{
+      const renderedVersion = {rendered_version};
+      const scheme = window.location.protocol === "https:" ? "wss" : "ws";
+      const socketUrl = `${{scheme}}://${{window.location.host}}/ui/ws/workbench`;
+      let reloadRequested = false;
+      let reconnectDelay = 500;
+      const maxReconnectDelay = 5000;
+
+      const connect = () => {{
+        const socket = new WebSocket(socketUrl);
+        socket.onopen = () => {{ reconnectDelay = 500; }};
+        socket.onmessage = (message) => {{
+          try {{
+            const event = JSON.parse(message.data);
+            const snapshotChanged = event.type === "workbench_snapshot" && event.version !== renderedVersion;
+            if ((snapshotChanged || event.type === "workbench_updated") && !reloadRequested) {{
               reloadRequested = true;
               window.location.reload();
             }}

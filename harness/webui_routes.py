@@ -185,6 +185,12 @@ def include_webui(
         queue = active_core.webui_events.subscribe_repository(str(active_core.repo_path))
         try:
             await websocket.accept()
+            await websocket.send_json({
+                "type": "workbench_snapshot",
+                "version": active_core.webui_events.repository_version(
+                    str(active_core.repo_path)
+                ),
+            })
             await _send_subscription_events(websocket, queue)
         finally:
             active_core.webui_events.unsubscribe_repository(str(active_core.repo_path), queue)
@@ -283,11 +289,10 @@ async def _send_subscription_events(websocket: WebSocket, queue: asyncio.Queue) 
         if event_task in done:
             try:
                 event = event_task.result()
-                await websocket.send_json({
-                    "type": event["type"],
-                    "run_id": event["run_id"],
-                    "timestamp": event["timestamp"],
-                })
+                payload = {"type": event["type"], "timestamp": event["timestamp"]}
+                if event["type"] == "run_updated":
+                    payload["run_id"] = event["run_id"]
+                await websocket.send_json(payload)
             except WebSocketDisconnect:
                 return
 

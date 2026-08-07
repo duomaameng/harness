@@ -19,6 +19,13 @@ class WebUIEvent(TypedDict):
     timestamp: str
 
 
+class WorkbenchEvent(TypedDict):
+    """An opaque repository refresh hint with no repository or run data."""
+
+    type: str
+    timestamp: str
+
+
 @dataclass(eq=False)
 class _Subscription:
     loop: asyncio.AbstractEventLoop
@@ -35,6 +42,7 @@ class WebUIEventHub:
         self._run_subscriptions: dict[tuple[str, str], set[_Subscription]] = defaultdict(set)
         self._repository_subscriptions: dict[str, set[_Subscription]] = defaultdict(set)
         self._run_versions: dict[tuple[str, str], int] = defaultdict(int)
+        self._repository_versions: dict[str, int] = defaultdict(int)
 
     def subscribe_run(self, repository: str, run_id: str) -> asyncio.Queue[WebUIEvent]:
         subscription = self._new_subscription()
@@ -61,28 +69,52 @@ class WebUIEventHub:
     def unsubscribe_repository(self, repository: str, queue: asyncio.Queue[WebUIEvent]) -> None:
         self._unsubscribe(self._repository_subscriptions, repository, queue)
 
+    def repository_version(self, repository: str) -> int:
+        """Return the latest opaque revision for a workbench refresh channel."""
+        with self._lock:
+            return self._repository_versions[repository]
+
     def publish_run_update(self, repository: str, run_id: str) -> None:
-        """Notify run-detail subscribers; repository broadcasts are added separately."""
-        event: WebUIEvent = {
+        """Notify run details and their repository workbench without leaking state."""
+        run_event: WebUIEvent = {
             "type": "run_updated",
             "run_id": run_id,
             "repository": repository,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+        workbench_event: WorkbenchEvent = {
+            "type": "workbench_updated",
+            "timestamp": run_event["timestamp"],
+        }
         with self._lock:
             self._run_versions[(repository, run_id)] += 1
-            subscriptions = []
-            for subscription in self._run_subscriptions.get((repository, run_id), ()):
-                if subscription.active and not subscription.pending:
-                    subscription.pending = True
-                    subscriptions.append(subscription)
+            self._repository_versions[repository] += 1
+            run_subscriptions = self._pending_subscriptions(
+                self._run_subscriptions.get((repository, run_id), ())
+            )
+            repository_subscriptions = self._pending_subscriptions(
+                self._repository_subscriptions.get(repository, ())
+            )
+        self._publish(run_subscriptions, run_event)
+        self._publish(repository_subscriptions, workbench_event)
+
+    @staticmethod
+    def _pending_subscriptions(subscriptions: set[_Subscription]) -> list[_Subscription]:
+        pending = []
+        for subscription in subscriptions:
+            if subscription.active and not subscription.pending:
+                subscription.pending = True
+                pending.append(subscription)
+        return pending
+
+    def _publish(self, subscriptions: list[_Subscription], event: dict) -> None:
         for subscription in subscriptions:
             try:
                 subscription.loop.call_soon_threadsafe(
                     self._enqueue, subscription, event.copy()
                 )
             except RuntimeError:
-                self.unsubscribe_run(repository, run_id, subscription.queue)
+                self._unsubscribe_subscription(subscription)
 
     @staticmethod
     def _new_subscription() -> _Subscription:
@@ -103,6 +135,17 @@ class WebUIEventHub:
                     matching.remove(subscription)
             if not matching:
                 subscriptions.pop(key, None)
+
+    def _unsubscribe_subscription(self, target: _Subscription) -> None:
+        with self._lock:
+            for subscriptions in (self._run_subscriptions, self._repository_subscriptions):
+                for key, matching in tuple(subscriptions.items()):
+                    if target in matching:
+                        target.active = False
+                        target.pending = False
+                        matching.remove(target)
+                    if not matching:
+                        subscriptions.pop(key, None)
 
     def _enqueue(self, subscription: _Subscription, event: WebUIEvent) -> None:
         with self._lock:
