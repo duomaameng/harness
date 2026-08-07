@@ -134,20 +134,34 @@ def include_webui(
 
     @app.post("/ui/approvals/{approval_id}/approve")
     def approve(approval_id: str) -> RedirectResponse:
-        approval = current_core().decide_approval(
-            approval_id,
-            ApprovalStatus.APPROVED.value,
-            decided_by="webui",
-        )
+        active_core = current_core()
+        existing = active_core.storage.get_approval_request(approval_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail=f"Unknown approval request: {approval_id}")
+        try:
+            approval = active_core.decide_approval(
+                approval_id,
+                ApprovalStatus.APPROVED.value,
+                decided_by="webui",
+            )
+        except ValueError:
+            approval = existing
         return RedirectResponse(f"/ui/runs/{approval.get('task_run_id')}", status_code=303)
 
     @app.post("/ui/approvals/{approval_id}/reject")
     def reject(approval_id: str) -> RedirectResponse:
-        approval = current_core().decide_approval(
-            approval_id,
-            ApprovalStatus.REJECTED.value,
-            decided_by="webui",
-        )
+        active_core = current_core()
+        existing = active_core.storage.get_approval_request(approval_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail=f"Unknown approval request: {approval_id}")
+        try:
+            approval = active_core.decide_approval(
+                approval_id,
+                ApprovalStatus.REJECTED.value,
+                decided_by="webui",
+            )
+        except ValueError:
+            approval = existing
         return RedirectResponse(f"/ui/runs/{approval.get('task_run_id')}", status_code=303)
 
     return app
