@@ -6,8 +6,6 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
-from fastapi.testclient import TestClient
-from starlette.websockets import WebSocketDisconnect
 from typer.testing import CliRunner
 
 from harness.api import create_app
@@ -334,6 +332,37 @@ def _endpoint(app, path, method):
         if getattr(route, "path", None) == path and method in getattr(route, "methods", set()):
             return route.endpoint
     raise AssertionError(f"missing route {method} {path}")
+
+
+def _websocket_endpoint(app, path):
+    for route in app.routes:
+        if getattr(route, "path", None) == path and not hasattr(route, "methods"):
+            return route.endpoint
+    raise AssertionError(f"missing WebSocket route {path}")
+
+
+class _FakeWebSocket:
+    def __init__(self):
+        self.sent = []
+        self.accepted = False
+        self.close_code = None
+        self._disconnect = asyncio.Event()
+
+    async def accept(self):
+        self.accepted = True
+
+    async def close(self, code=1000):
+        self.close_code = code
+
+    async def send_json(self, payload):
+        self.sent.append(payload)
+
+    async def receive(self):
+        await self._disconnect.wait()
+        return {"type": "websocket.disconnect"}
+
+    def disconnect(self):
+        self._disconnect.set()
 
 
 def _asgi_post(app, path, *, json=None, follow_redirects=False):
@@ -1469,11 +1498,20 @@ def test_webui_run_websocket_sends_snapshot_and_redacted_updates(tmp_path):
     run = service.run_task(task.id, max_rounds=1)
     api = create_app(service)
 
-    with TestClient(api) as client:
-        with client.websocket_connect(f"/ui/ws/runs/{run.id}") as websocket:
-            snapshot = websocket.receive_json()
-            service.webui_events.publish_run_update(str(repo.resolve()), run.id)
-            update = websocket.receive_json()
+    async def receive_events():
+        websocket = _FakeWebSocket()
+        endpoint = _websocket_endpoint(api, "/ui/ws/runs/{run_id}")
+        connection = asyncio.create_task(endpoint(websocket, run.id))
+        while not websocket.sent:
+            await asyncio.sleep(0)
+        service.webui_events.publish_run_update(str(repo.resolve()), run.id)
+        while len(websocket.sent) < 2:
+            await asyncio.sleep(0)
+        websocket.disconnect()
+        await connection
+        return websocket.sent
+
+    snapshot, update = asyncio.run(receive_events())
 
     assert snapshot["type"] == "run_snapshot"
     assert snapshot["run_id"] == run.id
@@ -1490,11 +1528,10 @@ def test_webui_run_websocket_rejects_unknown_run_and_unsubscribes(tmp_path):
     service = CoreService(repo, llm=MockLLM([]))
     api = create_app(service)
 
-    with TestClient(api) as client:
-        with pytest.raises(WebSocketDisconnect):
-            with client.websocket_connect("/ui/ws/runs/missing-run"):
-                pass
+    websocket = _FakeWebSocket()
+    asyncio.run(_websocket_endpoint(api, "/ui/ws/runs/{run_id}")(websocket, "missing-run"))
 
+    assert websocket.close_code == 1008
     assert service.webui_events._run_subscriptions == {}
 
 
@@ -1506,9 +1543,17 @@ def test_webui_run_websocket_unsubscribes_after_valid_connection_closes(tmp_path
     run = service.run_task(task.id, max_rounds=1)
     api = create_app(service)
 
-    with TestClient(api) as client:
-        with client.websocket_connect(f"/ui/ws/runs/{run.id}") as websocket:
-            websocket.receive_json()
+    async def connect_and_disconnect():
+        websocket = _FakeWebSocket()
+        connection = asyncio.create_task(
+            _websocket_endpoint(api, "/ui/ws/runs/{run_id}")(websocket, run.id)
+        )
+        while not websocket.sent:
+            await asyncio.sleep(0)
+        websocket.disconnect()
+        await connection
+
+    asyncio.run(connect_and_disconnect())
 
     assert service.webui_events._run_subscriptions == {}
 
@@ -1528,10 +1573,10 @@ def test_webui_run_websocket_rejects_run_outside_current_repository(tmp_path):
     registry.register(second_repo)
     api = create_app(service, registry=registry)
 
-    with TestClient(api) as client:
-        with pytest.raises(WebSocketDisconnect):
-            with client.websocket_connect(f"/ui/ws/runs/{run.id}"):
-                pass
+    websocket = _FakeWebSocket()
+    asyncio.run(_websocket_endpoint(api, "/ui/ws/runs/{run_id}")(websocket, run.id))
+
+    assert websocket.close_code == 1008
 
 
 def test_webui_run_detail_snapshot_client_reconnects_without_reload_loop(tmp_path):
