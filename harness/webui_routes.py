@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from harness.domain import ApprovalStatus
@@ -153,6 +155,46 @@ def include_webui(
 
         return HTMLResponse(_render_run_detail(current_core(), run_id))
 
+    @app.websocket("/ui/ws/runs/{run_id}")
+    async def run_updates(websocket: WebSocket, run_id: str) -> None:
+        active_core = await _websocket_core(websocket, current_core)
+        if active_core is None:
+            return
+        if active_core.storage.get_task_run(run_id) is None:
+            await websocket.close(code=1008)
+            return
+        queue = active_core.webui_events.subscribe_run(str(active_core.repo_path), run_id)
+        try:
+            await websocket.accept()
+            await websocket.send_json({
+                "type": "run_snapshot",
+                "run_id": run_id,
+                "version": active_core.webui_events.run_version(
+                    str(active_core.repo_path), run_id
+                ),
+            })
+            await _send_subscription_events(websocket, queue)
+        finally:
+            active_core.webui_events.unsubscribe_run(str(active_core.repo_path), run_id, queue)
+
+    @app.websocket("/ui/ws/workbench")
+    async def workbench_updates(websocket: WebSocket) -> None:
+        active_core = await _websocket_core(websocket, current_core)
+        if active_core is None:
+            return
+        queue = active_core.webui_events.subscribe_repository(str(active_core.repo_path))
+        try:
+            await websocket.accept()
+            await websocket.send_json({
+                "type": "workbench_snapshot",
+                "version": active_core.webui_events.repository_version(
+                    str(active_core.repo_path)
+                ),
+            })
+            await _send_subscription_events(websocket, queue)
+        finally:
+            active_core.webui_events.unsubscribe_repository(str(active_core.repo_path), queue)
+
     @app.post("/ui/approvals/{approval_id}/approve")
     def approve(approval_id: str) -> RedirectResponse:
         active_core = current_core()
@@ -214,6 +256,45 @@ def _max_rounds(payload: dict[str, Any]) -> int:
     if max_rounds < 1:
         raise HTTPException(status_code=400, detail="max_rounds must be at least 1")
     return max_rounds
+
+
+async def _websocket_core(
+    websocket: WebSocket, current_core: Callable[[], CoreService]
+) -> CoreService | None:
+    """Return only the service for the currently selected repository."""
+    try:
+        return current_core()
+    except HTTPException:
+        await websocket.close(code=1008)
+        return None
+
+
+async def _send_subscription_events(websocket: WebSocket, queue: asyncio.Queue) -> None:
+    """Forward queued refresh hints and promptly release subscriptions on disconnect."""
+    while True:
+        event_task = asyncio.create_task(queue.get())
+        receive_task = asyncio.create_task(websocket.receive())
+        done, pending = await asyncio.wait(
+            {event_task, receive_task}, return_when=asyncio.FIRST_COMPLETED
+        )
+        for task in pending:
+            task.cancel()
+        for task in pending:
+            with suppress(asyncio.CancelledError):
+                await task
+        if receive_task in done:
+            message = receive_task.result()
+            if message["type"] == "websocket.disconnect":
+                return
+        if event_task in done:
+            try:
+                event = event_task.result()
+                payload = {"type": event["type"], "timestamp": event["timestamp"]}
+                if event["type"] == "run_updated":
+                    payload["run_id"] = event["run_id"]
+                await websocket.send_json(payload)
+            except WebSocketDisconnect:
+                return
 
 
 def _choose_repository_directory() -> Path | None:

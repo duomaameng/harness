@@ -6,7 +6,7 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from harness.auth import CredentialService
 from harness.domain import ApprovalStatus, Feedback, MemoryKind, Task
@@ -15,6 +15,7 @@ from harness.memory import MemoryStore
 from harness.reports import ReportExporter
 from harness.runner import AgentRunner
 from harness.storage import HarnessStorage
+from harness.webui_events import WebUIEventHub
 
 
 class CoreService:
@@ -26,6 +27,7 @@ class CoreService:
         *,
         llm: LLMClient | None = None,
         validation_commands: list[str | list[str]] | None = None,
+        event_publisher: Callable[[str, str], None] | None = None,
     ) -> None:
         self.repo_path = Path(repo_path).resolve()
         self.storage = HarnessStorage(self.repo_path)
@@ -33,15 +35,23 @@ class CoreService:
         self.llm = llm or self._configured_llm() or MockLLM([])
         self.validation_commands = validation_commands
         self.memory_store = MemoryStore(self.storage)
+        self.webui_events = WebUIEventHub()
+        self._event_publisher = (
+            self.webui_events.publish_run_update
+            if event_publisher is None
+            else event_publisher
+        )
 
     def init(self) -> Path:
         self.storage.init()
         return self.storage.harness_dir
 
     def create_task(self, title: str, description: str = "") -> Task:
-        return self.storage.create_task(
+        task = self.storage.create_task(
             Task(title=title, description=description, repo_path=str(self.repo_path))
         )
+        self._publish_repository_update()
+        return task
 
     def list_tasks(self) -> list[dict[str, Any]]:
         return self.storage._fetchall(
@@ -49,10 +59,13 @@ class CoreService:
         )
 
     def rename_task(self, task_id: str, title: str) -> dict:
-        return self.storage.rename_task_if_inactive(task_id, title)
+        task = self.storage.rename_task_if_inactive(task_id, title)
+        self._publish_repository_update()
+        return task
 
     def delete_task(self, task_id: str) -> None:
         self.storage.delete_task_if_inactive(task_id)
+        self._publish_repository_update()
 
     def list_runs(self) -> list[dict[str, Any]]:
         return self.storage._fetchall(
@@ -68,6 +81,7 @@ class CoreService:
             llm=self.llm,
             repo_root=self.repo_path,
             validation_commands=self.validation_commands,
+            event_publisher=self._publish_run_update,
         )
         return runner.run(task_id, max_rounds=max_rounds)
 
@@ -127,12 +141,14 @@ class CoreService:
             decided_by=decided_by,
             decided_at=datetime.now(timezone.utc).isoformat(),
         )
+        self._publish_run_update(approval["task_run_id"])
         if status == ApprovalStatus.APPROVED.value:
             AgentRunner(
                 storage=self.storage,
                 llm=self.llm,
                 repo_root=self.repo_path,
                 validation_commands=self.validation_commands,
+                event_publisher=self._publish_run_update,
             ).resume_approved_action(approval_id)
         else:
             action = self.storage.get_action(approval["action_id"]) or {}
@@ -143,7 +159,20 @@ class CoreService:
                 summary=f"Approval rejected: {approval.get('reason') or 'human rejected action'}",
                 locations=[action.get("action_type") or "approval"],
             ))
+            self._publish_run_update(approval["task_run_id"])
         return self.storage.get_approval_request(approval_id) or {}
+
+    def _publish_run_update(self, run_id: str) -> None:
+        try:
+            self._event_publisher(str(self.repo_path), run_id)
+        except Exception:
+            pass
+
+    def _publish_repository_update(self) -> None:
+        try:
+            self.webui_events.publish_repository_update(str(self.repo_path))
+        except Exception:
+            pass
 
     def record_memory(
         self,

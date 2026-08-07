@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+from typing import Callable
 
 from harness.actions import ActionParser
 from harness.context_engine import ContextEngine
@@ -65,6 +66,7 @@ class AgentRunner:
         llm: LLMClient,
         repo_root: str | Path,
         validation_commands: list[str | Sequence[str]] | None = None,
+        event_publisher: Callable[[str], None] | None = None,
     ) -> None:
         self.storage = storage
         self.llm = llm
@@ -74,6 +76,7 @@ class AgentRunner:
         self.guardrail = Guardrail(self.repo_root)
         self.dispatcher = ToolDispatcher(storage)
         self.feedback_engine = FeedbackEngine()
+        self._event_publisher = event_publisher
 
     def run(self, task_id: str, max_rounds: int = 6) -> TaskRun:
         task = self.storage.get_task(task_id)
@@ -85,6 +88,7 @@ class AgentRunner:
             status=TaskStatus.RUNNING.value,
             max_repair_rounds=max_rounds,
         ))
+        self._publish_run_update(run.id)
         return self._continue(task=task, run=run, start_round=0)
 
     def resume_approved_action(self, approval_id: str) -> TaskRun:
@@ -108,6 +112,7 @@ class AgentRunner:
         )
         run.status = TaskStatus.RUNNING.value
         run.stop_reason = None
+        self._publish_run_update(run.id)
 
         result = self.dispatcher.dispatch_approved(
             action,
@@ -155,6 +160,7 @@ class AgentRunner:
 
         for round_index in range(start_round, run.max_repair_rounds):
             self.storage.update_task_run(run.id, current_round=round_index)
+            self._publish_run_update(run.id)
             package = ContextEngine(self.repo_root, self.storage).build_package(
                 task_run_id=run.id,
                 round_index=round_index,
@@ -173,6 +179,7 @@ class AgentRunner:
             action.task_run_id = run.id
             action.round_index = round_index
             self.storage.create_action(action)
+            self._publish_run_update(run.id)
 
             if action.schema_status == SchemaStatus.INVALID.value:
                 prior_actions.append(self._action_trace(action))
@@ -181,6 +188,7 @@ class AgentRunner:
                     schema_feedback.round_index = round_index
                     schema_feedback.locations = schema_feedback.locations or ["schema_validation"]
                     self.storage.create_feedback(schema_feedback)
+                    self._publish_run_update(run.id)
                     prior_feedback.append(schema_feedback)
                 if self.feedback_engine.should_stop_early(prior_feedback):
                     return self._finish(run, TaskStatus.STOPPED.value, "repeated_failure")
@@ -200,6 +208,7 @@ class AgentRunner:
             guardrail = self.guardrail.evaluate(action)
             action.guardrail_status = guardrail.status
             self.storage.update_action_guardrail(action.id, guardrail.status)
+            self._publish_run_update(run.id)
             if guardrail.status == GuardrailDecision.DENY.value:
                 self.storage.write_audit(make_audit_event(
                     "guardrail.blocked",
@@ -216,6 +225,7 @@ class AgentRunner:
                     locations=[action.action_type or "guardrail"],
                 )
                 self.storage.create_feedback(feedback)
+                self._publish_run_update(run.id)
                 prior_feedback.append(feedback)
                 prior_actions.append(self._action_trace(action))
                 if self.feedback_engine.should_stop_early(prior_feedback):
@@ -228,10 +238,12 @@ class AgentRunner:
                     risk_level=guardrail.risk_level,
                     reason=guardrail.reason,
                 ))
+                self._publish_run_update(run.id)
                 prior_actions.append(self._action_trace(action))
                 return self._wait_for_approval(run, "approval_required")
 
             result = self.dispatcher.dispatch(action, repo_root=self.repo_root)
+            self._publish_run_update(run.id)
             changed_files.update(result.changed_files or [])
             prior_actions.append(self._action_trace(action))
             if self._should_validate_after(action):
@@ -337,6 +349,7 @@ class AgentRunner:
                 locations=["validation_commands"],
             )
             self.storage.create_feedback(item)
+            self._publish_run_update(task_run_id)
             return [item]
         feedback: list[Feedback] = []
         for command in commands:
@@ -344,6 +357,7 @@ class AgentRunner:
             item.task_run_id = task_run_id
             item.round_index = round_index
             self.storage.create_feedback(item)
+            self._publish_run_update(task_run_id)
             if self._validation_passed(item):
                 continue
             feedback.append(item)
@@ -405,6 +419,7 @@ class AgentRunner:
         )
         run.status = TaskStatus.WAITING_APPROVAL.value
         run.stop_reason = stop_reason
+        self._publish_run_update(run.id)
         return run
 
     def _finish(self, run: TaskRun, status: str, stop_reason: str) -> TaskRun:
@@ -424,4 +439,12 @@ class AgentRunner:
         run.status = status
         run.stop_reason = stop_reason
         run.finished_at = finished_at
+        self._publish_run_update(run.id)
         return run
+
+    def _publish_run_update(self, run_id: str) -> None:
+        if self._event_publisher is not None:
+            try:
+                self._event_publisher(run_id)
+            except Exception:
+                pass
