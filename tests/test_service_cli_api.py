@@ -371,10 +371,10 @@ def test_webui_workbench_uses_independent_desktop_scroll_regions(tmp_path):
     assert ".dashboard-shell { display: grid; grid-template-columns: 320px minmax(0, 1fr); height: calc(100vh - 67px); overflow: hidden; }" in html
     assert ".task-sidebar { min-height: 0; overflow-y: auto;" in html
     assert ".main-view, .detail-shell { min-height: 0; overflow-y: auto; padding: 28px; }" in html
-    assert "body { height: 100vh; overflow: hidden; }" in html
+    assert "body:has(.dashboard-shell) { height: 100vh; overflow: hidden; }" in html
     assert ".dashboard-shell { height: auto; overflow: visible; }" in html
     assert ".task-sidebar, .main-view, .detail-shell { overflow: visible; }" in html
-    assert "body { height: auto; overflow: visible; }" in html
+    assert "body:has(.dashboard-shell) { height: auto; overflow: visible; }" in html
 
 
 def test_webui_repository_path_is_available_from_a_name_hover_tooltip(tmp_path):
