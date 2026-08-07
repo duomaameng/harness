@@ -204,6 +204,7 @@ def _render_run_detail(core: CoreService, run_id: str) -> str:
       </aside>
     </div>
   </main>
+  {_run_detail_refresh_script(run_id)}
 </body>
 </html>"""
 
@@ -754,6 +755,44 @@ def _style() -> str:
       .stat-band, .evidence-strip { grid-template-columns: 1fr; }
     }
   </style>"""
+
+
+def _run_detail_refresh_script(run_id: str) -> str:
+    """Reconnect for opaque run refresh hints without maintaining client-side state."""
+    safe_run_id = json.dumps(run_id)
+    return f"""<script>
+    (() => {{
+      const runId = {safe_run_id};
+      const scheme = window.location.protocol === "https:" ? "wss" : "ws";
+      const socketUrl = `${{scheme}}://${{window.location.host}}/ui/ws/runs/${{encodeURIComponent(runId)}}`;
+      let reloadRequested = false;
+      let reconnectDelay = 500;
+      const maxReconnectDelay = 5000;
+
+      const connect = () => {{
+        const socket = new WebSocket(socketUrl);
+        socket.onopen = () => {{ reconnectDelay = 500; }};
+        socket.onmessage = (message) => {{
+          try {{
+            const event = JSON.parse(message.data);
+            if (event.type === "run_updated" && !reloadRequested) {{
+              reloadRequested = true;
+              window.location.reload();
+            }}
+          }} catch (_) {{
+            // Ignore malformed refresh hints; a manual refresh remains available.
+          }}
+        }};
+        socket.onclose = () => {{
+          if (reloadRequested) return;
+          window.setTimeout(connect, reconnectDelay);
+          reconnectDelay = Math.min(reconnectDelay * 2, maxReconnectDelay);
+        }};
+      }};
+
+      connect();
+    }})();
+  </script>"""
 
 
 def _script() -> str:

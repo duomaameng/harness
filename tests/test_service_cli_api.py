@@ -1429,6 +1429,36 @@ def test_webui_run_detail_matches_design_prototype_structure(tmp_path):
     assert "python -m pytest tests/test_calculator.py -q" in html
 
 
+def test_webui_run_detail_includes_reconnecting_websocket_client(tmp_path):
+    repo = tmp_path / "websocket-detail-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    api = create_app(service)
+    task = service.create_task("Refresh detail", "Refresh after an opaque event")
+    run = service.run_task(task.id, max_rounds=1)
+
+    html = _endpoint(api, "/ui/runs/{run_id}", "GET")(run.id).body.decode("utf-8")
+
+    assert "/ui/ws/runs/" in html
+    assert "new WebSocket" in html
+    assert 'event.type === "run_updated"' in html
+    assert "window.location.reload()" in html
+    assert "socket.onclose" in html
+
+
+def test_webui_registers_run_and_workbench_websocket_routes(tmp_path):
+    repo = tmp_path / "websocket-routes-repo"
+    repo.mkdir()
+    api = create_app(CoreService(repo, llm=MockLLM([])))
+
+    websocket_paths = {
+        route.path for route in api.routes if hasattr(route, "endpoint") and not hasattr(route, "methods")
+    }
+
+    assert "/ui/ws/runs/{run_id}" in websocket_paths
+    assert "/ui/ws/workbench" in websocket_paths
+
+
 def test_webui_run_detail_shows_human_readable_finish_result(tmp_path):
     repo = tmp_path / "webui-readable-result-repo"
     repo.mkdir()
