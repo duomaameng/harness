@@ -590,6 +590,7 @@ def _style() -> str:
                   linear-gradient(rgba(21,29,26,.035) 1px, transparent 1px) 0 0 / 32px 32px,
                   var(--paper);
     }
+    body:has(.dashboard-shell) { height: 100vh; overflow: hidden; }
     a { color: inherit; }
     .topbar {
       position: sticky; top: 0; z-index: 2; display: flex; align-items: center;
@@ -706,6 +707,7 @@ def _style() -> str:
     .legacy-test-labels { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
     @media (max-width: 980px) {
       .dashboard-shell, .detail-layout { grid-template-columns: 1fr; }
+      body:has(.dashboard-shell) { height: auto; overflow: visible; }
       .dashboard-shell { height: auto; overflow: visible; }
       .task-sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
       .task-sidebar, .main-view, .detail-shell { overflow: visible; }
