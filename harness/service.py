@@ -6,7 +6,7 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from harness.auth import CredentialService
 from harness.domain import ApprovalStatus, Feedback, MemoryKind, Task
@@ -15,6 +15,7 @@ from harness.memory import MemoryStore
 from harness.reports import ReportExporter
 from harness.runner import AgentRunner
 from harness.storage import HarnessStorage
+from harness.webui_events import WebUIEventHub
 
 
 class CoreService:
@@ -26,6 +27,7 @@ class CoreService:
         *,
         llm: LLMClient | None = None,
         validation_commands: list[str | list[str]] | None = None,
+        event_publisher: Callable[[str, str], None] | None = None,
     ) -> None:
         self.repo_path = Path(repo_path).resolve()
         self.storage = HarnessStorage(self.repo_path)
@@ -33,6 +35,8 @@ class CoreService:
         self.llm = llm or self._configured_llm() or MockLLM([])
         self.validation_commands = validation_commands
         self.memory_store = MemoryStore(self.storage)
+        self.webui_events = WebUIEventHub()
+        self._event_publisher = event_publisher or self.webui_events.publish_run_update
 
     def init(self) -> Path:
         self.storage.init()
@@ -68,6 +72,7 @@ class CoreService:
             llm=self.llm,
             repo_root=self.repo_path,
             validation_commands=self.validation_commands,
+            event_publisher=self._publish_run_update,
         )
         return runner.run(task_id, max_rounds=max_rounds)
 
@@ -127,12 +132,14 @@ class CoreService:
             decided_by=decided_by,
             decided_at=datetime.now(timezone.utc).isoformat(),
         )
+        self._publish_run_update(approval["task_run_id"])
         if status == ApprovalStatus.APPROVED.value:
             AgentRunner(
                 storage=self.storage,
                 llm=self.llm,
                 repo_root=self.repo_path,
                 validation_commands=self.validation_commands,
+                event_publisher=self._publish_run_update,
             ).resume_approved_action(approval_id)
         else:
             action = self.storage.get_action(approval["action_id"]) or {}
@@ -143,7 +150,11 @@ class CoreService:
                 summary=f"Approval rejected: {approval.get('reason') or 'human rejected action'}",
                 locations=[action.get("action_type") or "approval"],
             ))
+            self._publish_run_update(approval["task_run_id"])
         return self.storage.get_approval_request(approval_id) or {}
+
+    def _publish_run_update(self, run_id: str) -> None:
+        self._event_publisher(str(self.repo_path), run_id)
 
     def record_memory(
         self,

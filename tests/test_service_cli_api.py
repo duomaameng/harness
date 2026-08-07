@@ -21,11 +21,50 @@ from harness.domain import (
 )
 from harness.llm import MockLLM, OpenAICompatibleClient
 from harness.service import CoreService
+from harness.webui_events import WebUIEventHub
 
 
 @pytest.fixture(autouse=True)
 def isolate_appdata(tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+
+
+def test_webui_event_hub_delivers_opaque_run_refresh_events():
+    async def receive_event():
+        hub = WebUIEventHub()
+        queue = hub.subscribe_run("repo", "run-1")
+
+        hub.publish_run_update("repo", "run-1")
+
+        return await queue.get()
+
+    event = asyncio.run(receive_event())
+
+    assert event["type"] == "run_updated"
+    assert event["run_id"] == "run-1"
+    assert event["repository"] == "repo"
+    assert set(event) == {"type", "run_id", "repository", "timestamp"}
+
+
+def test_core_service_publishes_runner_visible_changes_to_optional_callback(tmp_path):
+    repo = tmp_path / "event-publisher-repo"
+    repo.mkdir()
+    published: list[tuple[str, str]] = []
+    service = CoreService(
+        repo,
+        llm=MockLLM([
+            '{"thought_summary":"complete","action":"finish",'
+            '"args":{"summary":"finished"}}'
+        ]),
+        event_publisher=lambda repository, run_id: published.append((repository, run_id)),
+    )
+    task = service.create_task("Publish visible changes")
+
+    run = service.run_task(task.id, max_rounds=1)
+
+    assert published
+    assert all(repository == str(repo.resolve()) for repository, _ in published)
+    assert all(run_id == run.id for _, run_id in published)
 
 
 def test_rename_task_updates_an_inactive_task_title(tmp_path):
