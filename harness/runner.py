@@ -10,8 +10,10 @@ from pathlib import Path
 from harness.actions import ActionParser
 from harness.context_engine import ContextEngine
 from harness.domain import (
+    Action,
     ActionType,
     ApprovalRequest,
+    ApprovalStatus,
     Feedback,
     FeedbackCategory,
     FeedbackSource,
@@ -83,12 +85,75 @@ class AgentRunner:
             status=TaskStatus.RUNNING.value,
             max_repair_rounds=max_rounds,
         ))
-        prior_feedback: list[Feedback] = []
-        prior_actions: list[dict] = []
-        changed_files: set[str] = set()
+        return self._continue(task=task, run=run, start_round=0)
+
+    def resume_approved_action(self, approval_id: str) -> TaskRun:
+        approval = self.storage.get_approval_request(approval_id)
+        if approval is None or approval["status"] != ApprovalStatus.APPROVED.value:
+            raise ValueError(f"Approval is not approved: {approval_id}")
+        stored_run = self.storage.get_task_run(approval["task_run_id"])
+        if stored_run is None or stored_run["status"] != TaskStatus.WAITING_APPROVAL.value:
+            raise ValueError("Approval does not belong to a waiting task run")
+        task = self.storage.get_task(stored_run["task_id"])
+        action_data = self.storage.get_action(approval["action_id"])
+        if task is None or action_data is None:
+            raise ValueError("Approval is missing its task or action")
+
+        run = TaskRun(**stored_run)
+        action = Action(**action_data)
+        self.storage.update_task_run(
+            run.id,
+            status=TaskStatus.RUNNING.value,
+            stop_reason=None,
+        )
+        run.status = TaskStatus.RUNNING.value
+        run.stop_reason = None
+
+        result = self.dispatcher.dispatch_approved(
+            action,
+            approval_id=approval_id,
+            repo_root=self.repo_root,
+        )
+        prior_actions = [
+            self._action_trace(Action(**item))
+            for item in self.storage.list_actions_for_run(run.id)
+        ]
+        prior_feedback = [
+            self._feedback_from_row(item)
+            for item in self.storage.list_feedback_for_run(run.id)
+        ]
+        changed_files = self._changed_files_for_run(run.id)
+        changed_files.update(result.changed_files or [])
+        if self._should_validate_after(action):
+            validation_feedback = self._run_validation(run.id, action.round_index)
+            prior_feedback.extend(validation_feedback)
+            if self.feedback_engine.should_stop_early(prior_feedback):
+                return self._finish(run, TaskStatus.STOPPED.value, "repeated_failure")
+        return self._continue(
+            task=task,
+            run=run,
+            start_round=action.round_index + 1,
+            prior_actions=prior_actions,
+            prior_feedback=prior_feedback,
+            changed_files=changed_files,
+        )
+
+    def _continue(
+        self,
+        *,
+        task: dict,
+        run: TaskRun,
+        start_round: int,
+        prior_actions: list[dict] | None = None,
+        prior_feedback: list[Feedback] | None = None,
+        changed_files: set[str] | None = None,
+    ) -> TaskRun:
+        prior_actions = prior_actions or []
+        prior_feedback = prior_feedback or []
+        changed_files = changed_files or set()
         profile = TaskProfiler().profile(task["description"] or task["title"])
 
-        for round_index in range(max_rounds):
+        for round_index in range(start_round, run.max_repair_rounds):
             self.storage.update_task_run(run.id, current_round=round_index)
             package = ContextEngine(self.repo_root, self.storage).build_package(
                 task_run_id=run.id,
@@ -176,6 +241,39 @@ class AgentRunner:
                     return self._finish(run, TaskStatus.STOPPED.value, "repeated_failure")
 
         return self._finish(run, TaskStatus.STOPPED.value, "max_repair_rounds")
+
+    def _feedback_from_row(self, feedback: dict) -> Feedback:
+        locations = feedback.get("locations")
+        if isinstance(locations, str):
+            try:
+                locations = json.loads(locations)
+            except json.JSONDecodeError:
+                locations = []
+        return Feedback(
+            id=feedback["id"],
+            task_run_id=feedback["task_run_id"],
+            round_index=feedback["round_index"],
+            source=feedback["source"],
+            category=feedback["category"],
+            summary=feedback["summary"],
+            locations=locations if isinstance(locations, list) else [],
+            raw_excerpt=feedback["raw_excerpt"],
+            passed=bool(feedback["passed"]),
+            created_at=feedback["created_at"],
+        )
+
+    def _changed_files_for_run(self, task_run_id: str) -> set[str]:
+        changed_files: set[str] = set()
+        for result in self.storage.list_tool_results_for_run(task_run_id):
+            if not result["changed_files"]:
+                continue
+            try:
+                paths = json.loads(result["changed_files"])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(paths, list):
+                changed_files.update(path for path in paths if isinstance(path, str))
+        return changed_files
 
     def _messages(
         self,

@@ -121,7 +121,14 @@ class CoreService:
             decided_by=decided_by,
             decided_at=datetime.now(timezone.utc).isoformat(),
         )
-        if status == ApprovalStatus.REJECTED.value:
+        if status == ApprovalStatus.APPROVED.value:
+            AgentRunner(
+                storage=self.storage,
+                llm=self.llm,
+                repo_root=self.repo_path,
+                validation_commands=self.validation_commands,
+            ).resume_approved_action(approval_id)
+        else:
             action = self.storage.get_action(approval["action_id"]) or {}
             self.storage.create_feedback(Feedback(
                 task_run_id=approval["task_run_id"],
