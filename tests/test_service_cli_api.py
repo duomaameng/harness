@@ -752,6 +752,44 @@ def test_api_approval_decisions_update_pending_request(tmp_path):
     assert rejected["status"] == "rejected"
 
 
+def test_api_approved_action_resumes_the_same_run_once(tmp_path):
+    repo = tmp_path / "approval-resume-repo"
+    repo.mkdir()
+    service = CoreService(
+        repo,
+        llm=MockLLM([
+            '{"thought_summary":"needs approval","action":"run_command",'
+            '"args":{"command":"echo approved"}}',
+            '{"thought_summary":"complete","action":"finish",'
+            '"args":{"summary":"approved command completed"}}',
+        ]),
+    )
+    app = create_app(service)
+    task_id = _endpoint(app, "/tasks", "POST")({"title": "Run approved command"})["id"]
+
+    run = _endpoint(app, "/tasks/{task_id}/runs", "POST")(task_id, {"max_rounds": 2})
+    run_id = run["id"]
+    assert run["status"] == "waiting_approval"
+    approval_id = _endpoint(app, "/runs/{run_id}/approvals", "GET")(run_id)[0]["id"]
+
+    _endpoint(app, "/approvals/{approval_id}/approve", "POST")(
+        approval_id, {"decided_by": "tester"}
+    )
+
+    resumed_run = _endpoint(app, "/runs/{run_id}", "GET")(run_id)["run"]
+    actions = _endpoint(app, "/runs/{run_id}/actions", "GET")(run_id)
+    tool_results = service.storage.list_tool_results_for_run(run_id)
+
+    assert resumed_run["id"] == run_id
+    assert resumed_run["status"] == "succeeded"
+    assert len(service.list_runs()) == 1
+    assert [action["action_type"] for action in actions] == ["run_command", "finish"]
+    assert len(tool_results) == 1
+    assert tool_results[0]["action_id"] == actions[0]["id"]
+    assert tool_results[0]["status"] == "success"
+    assert tool_results[0]["stdout_excerpt"] == "approved\n"
+
+
 def test_rejected_approval_creates_guardrail_feedback(tmp_path):
     repo = tmp_path / "approval-feedback-repo"
     repo.mkdir()

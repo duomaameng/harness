@@ -11,6 +11,7 @@ from pathlib import Path
 from harness.domain import (
     Action,
     ActionType,
+    ApprovalStatus,
     GuardrailDecision,
     MemoryEntry,
     SchemaStatus,
@@ -37,8 +38,18 @@ class ToolDispatcher:
         self.limits = limits or ToolLimits()
 
     def dispatch(self, action: Action, *, repo_root: str | Path) -> ToolResult:
-        repo = Path(repo_root).resolve()
         self._require_allowed(action)
+        return self._dispatch(action, repo_root=repo_root)
+
+    def dispatch_approved(
+        self, action: Action, *, approval_id: str, repo_root: str | Path
+    ) -> ToolResult:
+        """Execute one action only when its exact approval is recorded."""
+        self._require_approved(action, approval_id)
+        return self._dispatch(action, repo_root=repo_root)
+
+    def _dispatch(self, action: Action, *, repo_root: str | Path) -> ToolResult:
+        repo = Path(repo_root).resolve()
         args = self._load_args(action)
 
         handlers = {
@@ -117,6 +128,25 @@ class ToolDispatcher:
             raise ValueError("Cannot dispatch action that failed schema validation")
         if action.guardrail_status != GuardrailDecision.ALLOW.value:
             raise ValueError("Cannot dispatch action before guardrail allow decision")
+
+    def _require_approved(self, action: Action, approval_id: str) -> None:
+        if action.schema_status != SchemaStatus.VALID.value:
+            raise ValueError("Cannot dispatch action that failed schema validation")
+        if action.guardrail_status != GuardrailDecision.REQUIRE_APPROVAL.value:
+            raise ValueError("Approved dispatch requires an approval-gated action")
+        approval = self.storage.get_approval_request(approval_id)
+        if (
+            approval is None
+            or approval["status"] != ApprovalStatus.APPROVED.value
+            or approval["action_id"] != action.id
+            or approval["task_run_id"] != action.task_run_id
+        ):
+            raise ValueError("Cannot dispatch action without its recorded approval")
+        if any(
+            result["action_id"] == action.id
+            for result in self.storage.list_tool_results_for_run(action.task_run_id)
+        ):
+            raise ValueError("Cannot dispatch an already executed approved action")
 
     def _load_args(self, action: Action) -> dict[str, object]:
         try:
