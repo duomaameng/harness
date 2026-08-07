@@ -364,10 +364,11 @@ def _render_result(
 
     status = str(run.get("status") or "unknown")
     stop_reason = str(run.get("stop_reason") or "暂无")
+    retry_advice = "（建议在新建任务时增加轮次后重试）" if stop_reason == "max_repair_rounds" else ""
     return f"""<section class="result-card" aria-labelledby="result-title">
   <p class="eyebrow">运行结果</p>
   <h3 id="result-title">还没有最终结果</h3>
-  <p>当前状态：{escape(status)}；原因：{escape(stop_reason)}。</p>
+  <p>当前状态：{escape(status)}；原因：{escape(stop_reason)}。{retry_advice}</p>
   <p class="item-meta">下面的时间线和动作轨迹是调试信息，最终总结会优先显示在这里。</p>
 </section>"""
 

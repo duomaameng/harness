@@ -10,7 +10,7 @@ from typer.testing import CliRunner
 
 from harness.api import create_app
 from harness.cli import app
-from harness.domain import Action, ToolResult
+from harness.domain import Action, TaskRun, ToolResult
 from harness.llm import MockLLM, OpenAICompatibleClient
 from harness.service import CoreService
 
@@ -1050,6 +1050,24 @@ def test_webui_run_detail_shows_human_readable_finish_result(tmp_path):
     assert 'class="result-card' in html
     assert "运行结果" in html
     assert "Project dependencies are Typer, FastAPI, Uvicorn, and keyring." in html
+
+
+def test_webui_run_detail_suggests_more_rounds_after_max_repair_rounds(tmp_path):
+    repo = tmp_path / "webui-max-repair-rounds-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    api = create_app(service)
+    task = service.create_task("Retry task", "Run until the repair-round limit")
+    run = service.storage.create_task_run(TaskRun(
+        task_id=task.id,
+        status="stopped",
+        stop_reason="max_repair_rounds",
+    ))
+
+    html = _endpoint(api, "/ui/runs/{run_id}", "GET")(run.id).body.decode("utf-8")
+
+    assert "max_repair_rounds" in html
+    assert "（建议在新建任务时增加轮次后重试）" in html
 
 
 def test_report_endpoint_and_webui_render_readable_completed_run_report(tmp_path):
