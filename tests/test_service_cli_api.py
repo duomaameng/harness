@@ -361,6 +361,20 @@ def test_webui_repository_sidebar_preserves_spacing_between_controls_and_content
     assert ".repo-management-menu { position: relative; margin: 10px 0 14px; }" in html
 
 
+def test_webui_workbench_uses_independent_desktop_scroll_regions(tmp_path):
+    repository_path = tmp_path / "repository"
+    repository_path.mkdir()
+    api = create_app(CoreService(repository_path, llm=MockLLM([])))
+
+    html = _endpoint(api, "/", "GET")().body.decode("utf-8")
+
+    assert ".dashboard-shell { display: grid; grid-template-columns: 320px minmax(0, 1fr); height: calc(100vh - 67px); overflow: hidden; }" in html
+    assert ".task-sidebar { min-height: 0; overflow-y: auto;" in html
+    assert ".main-view, .detail-shell { min-height: 0; overflow-y: auto; padding: 28px; }" in html
+    assert ".dashboard-shell { height: auto; overflow: visible; }" in html
+    assert ".task-sidebar, .main-view, .detail-shell { overflow: visible; }" in html
+
+
 def test_webui_repository_path_is_available_from_a_name_hover_tooltip(tmp_path):
     from harness.repository_registry import RepositoryRegistry
 
