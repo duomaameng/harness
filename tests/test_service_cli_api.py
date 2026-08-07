@@ -841,6 +841,31 @@ def test_approval_can_only_be_decided_once(tmp_path):
     assert exc.value.status_code == 409
 
 
+def test_webui_repeated_approval_redirects_to_the_run_detail(tmp_path):
+    repo = tmp_path / "webui-repeat-approval-repo"
+    repo.mkdir()
+    service = CoreService(
+        repo,
+        llm=MockLLM([
+            '{"thought_summary":"needs approval","action":"run_command",'
+            '"args":{"command":"echo approved"}}',
+            '{"thought_summary":"complete","action":"finish",'
+            '"args":{"summary":"approved command completed"}}',
+        ]),
+    )
+    app = create_app(service)
+    task_id = _endpoint(app, "/tasks", "POST")({"title": "Run command"})["id"]
+    run_id = _endpoint(app, "/tasks/{task_id}/runs", "POST")(task_id, {"max_rounds": 2})["id"]
+    approval_id = _endpoint(app, "/runs/{run_id}/approvals", "GET")(run_id)[0]["id"]
+    approve = _endpoint(app, "/ui/approvals/{approval_id}/approve", "POST")
+
+    assert approve(approval_id).status_code == 303
+    repeated_response = approve(approval_id)
+
+    assert repeated_response.status_code == 303
+    assert repeated_response.headers["location"] == f"/ui/runs/{run_id}"
+
+
 def test_json_report_endpoint_returns_structured_report_object(tmp_path):
     repo = tmp_path / "structured-report-repo"
     repo.mkdir()

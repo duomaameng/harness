@@ -782,6 +782,11 @@ def _script() -> str:
     document.querySelectorAll("[data-dialog-cancel]").forEach((button) => {
       button.addEventListener("click", () => button.closest("dialog")?.close());
     });
+    document.querySelectorAll('form[action^="/ui/approvals/"]').forEach((approvalForm) => {
+      approvalForm.addEventListener("submit", () => {
+        approvalForm.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+      });
+    });
   </script>"""
 
 
