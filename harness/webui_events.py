@@ -82,21 +82,26 @@ class WebUIEventHub:
             "repository": repository,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-        workbench_event: WorkbenchEvent = {
-            "type": "workbench_updated",
-            "timestamp": run_event["timestamp"],
-        }
         with self._lock:
             self._run_versions[(repository, run_id)] += 1
-            self._repository_versions[repository] += 1
             run_subscriptions = self._pending_subscriptions(
                 self._run_subscriptions.get((repository, run_id), ())
             )
-            repository_subscriptions = self._pending_subscriptions(
+        self._publish(run_subscriptions, run_event)
+        self.publish_repository_update(repository)
+
+    def publish_repository_update(self, repository: str) -> None:
+        """Notify a workbench without exposing the repository or changed record."""
+        event: WorkbenchEvent = {
+            "type": "workbench_updated",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        with self._lock:
+            self._repository_versions[repository] += 1
+            subscriptions = self._pending_subscriptions(
                 self._repository_subscriptions.get(repository, ())
             )
-        self._publish(run_subscriptions, run_event)
-        self._publish(repository_subscriptions, workbench_event)
+        self._publish(subscriptions, event)
 
     @staticmethod
     def _pending_subscriptions(subscriptions: set[_Subscription]) -> list[_Subscription]:

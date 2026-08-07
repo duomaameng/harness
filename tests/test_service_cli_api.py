@@ -81,6 +81,74 @@ def test_webui_event_hub_isolates_repository_subscribers():
     assert second_is_empty
 
 
+def test_core_service_create_task_notifies_repository_subscribers(tmp_path):
+    repo = tmp_path / "workbench-create-repo"
+    repo.mkdir()
+
+    async def create_and_receive():
+        service = CoreService(repo, llm=MockLLM([]))
+        queue = service.webui_events.subscribe_repository(str(repo.resolve()))
+        version = service.webui_events.repository_version(str(repo.resolve()))
+        service.create_task("Created without running")
+        return (
+            await asyncio.wait_for(queue.get(), 0.1),
+            version,
+            service.webui_events.repository_version(str(repo.resolve())),
+        )
+
+    event, previous_version, current_version = asyncio.run(create_and_receive())
+
+    assert event["type"] == "workbench_updated"
+    assert set(event) == {"type", "timestamp"}
+    assert current_version == previous_version + 1
+
+
+def test_core_service_rename_task_notifies_repository_subscribers(tmp_path):
+    repo = tmp_path / "workbench-rename-repo"
+    repo.mkdir()
+
+    async def rename_and_receive():
+        service = CoreService(repo, llm=MockLLM([]))
+        task = service.create_task("Original title")
+        queue = service.webui_events.subscribe_repository(str(repo.resolve()))
+        version = service.webui_events.repository_version(str(repo.resolve()))
+        service.rename_task(task.id, "Renamed title")
+        return (
+            await asyncio.wait_for(queue.get(), 0.1),
+            version,
+            service.webui_events.repository_version(str(repo.resolve())),
+        )
+
+    event, previous_version, current_version = asyncio.run(rename_and_receive())
+
+    assert event["type"] == "workbench_updated"
+    assert set(event) == {"type", "timestamp"}
+    assert current_version == previous_version + 1
+
+
+def test_core_service_delete_task_notifies_repository_subscribers(tmp_path):
+    repo = tmp_path / "workbench-delete-repo"
+    repo.mkdir()
+
+    async def delete_and_receive():
+        service = CoreService(repo, llm=MockLLM([]))
+        task = service.create_task("Deleted without running")
+        queue = service.webui_events.subscribe_repository(str(repo.resolve()))
+        version = service.webui_events.repository_version(str(repo.resolve()))
+        service.delete_task(task.id)
+        return (
+            await asyncio.wait_for(queue.get(), 0.1),
+            version,
+            service.webui_events.repository_version(str(repo.resolve())),
+        )
+
+    event, previous_version, current_version = asyncio.run(delete_and_receive())
+
+    assert event["type"] == "workbench_updated"
+    assert set(event) == {"type", "timestamp"}
+    assert current_version == previous_version + 1
+
+
 def test_webui_event_hub_schedules_one_callback_while_subscriber_loop_is_paused(monkeypatch):
     async def publish_without_draining_loop():
         hub = WebUIEventHub()

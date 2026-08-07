@@ -47,9 +47,11 @@ class CoreService:
         return self.storage.harness_dir
 
     def create_task(self, title: str, description: str = "") -> Task:
-        return self.storage.create_task(
+        task = self.storage.create_task(
             Task(title=title, description=description, repo_path=str(self.repo_path))
         )
+        self._publish_repository_update()
+        return task
 
     def list_tasks(self) -> list[dict[str, Any]]:
         return self.storage._fetchall(
@@ -57,10 +59,13 @@ class CoreService:
         )
 
     def rename_task(self, task_id: str, title: str) -> dict:
-        return self.storage.rename_task_if_inactive(task_id, title)
+        task = self.storage.rename_task_if_inactive(task_id, title)
+        self._publish_repository_update()
+        return task
 
     def delete_task(self, task_id: str) -> None:
         self.storage.delete_task_if_inactive(task_id)
+        self._publish_repository_update()
 
     def list_runs(self) -> list[dict[str, Any]]:
         return self.storage._fetchall(
@@ -160,6 +165,12 @@ class CoreService:
     def _publish_run_update(self, run_id: str) -> None:
         try:
             self._event_publisher(str(self.repo_path), run_id)
+        except Exception:
+            pass
+
+    def _publish_repository_update(self) -> None:
+        try:
+            self.webui_events.publish_repository_update(str(self.repo_path))
         except Exception:
             pass
 
