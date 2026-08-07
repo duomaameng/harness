@@ -204,7 +204,7 @@ def _render_run_detail(core: CoreService, run_id: str) -> str:
       </aside>
     </div>
   </main>
-  {_run_detail_refresh_script(run_id)}
+  {_run_detail_refresh_script(core, run_id)}
 </body>
 </html>"""
 
@@ -757,12 +757,14 @@ def _style() -> str:
   </style>"""
 
 
-def _run_detail_refresh_script(run_id: str) -> str:
+def _run_detail_refresh_script(core: CoreService, run_id: str) -> str:
     """Reconnect for opaque run refresh hints without maintaining client-side state."""
     safe_run_id = json.dumps(run_id)
+    rendered_version = core.webui_events.run_version(str(core.repo_path), run_id)
     return f"""<script>
     (() => {{
       const runId = {safe_run_id};
+      const renderedVersion = {rendered_version};
       const scheme = window.location.protocol === "https:" ? "wss" : "ws";
       const socketUrl = `${{scheme}}://${{window.location.host}}/ui/ws/runs/${{encodeURIComponent(runId)}}`;
       let reloadRequested = false;
@@ -775,7 +777,8 @@ def _run_detail_refresh_script(run_id: str) -> str:
         socket.onmessage = (message) => {{
           try {{
             const event = JSON.parse(message.data);
-            if (event.type === "run_updated" && !reloadRequested) {{
+            const snapshotChanged = event.type === "run_snapshot" && event.version !== renderedVersion;
+            if ((snapshotChanged || event.type === "run_updated") && !reloadRequested) {{
               reloadRequested = true;
               window.location.reload();
             }}

@@ -34,6 +34,7 @@ class WebUIEventHub:
         self._lock = Lock()
         self._run_subscriptions: dict[tuple[str, str], set[_Subscription]] = defaultdict(set)
         self._repository_subscriptions: dict[str, set[_Subscription]] = defaultdict(set)
+        self._run_versions: dict[tuple[str, str], int] = defaultdict(int)
 
     def subscribe_run(self, repository: str, run_id: str) -> asyncio.Queue[WebUIEvent]:
         subscription = self._new_subscription()
@@ -45,6 +46,11 @@ class WebUIEventHub:
         self, repository: str, run_id: str, queue: asyncio.Queue[WebUIEvent]
     ) -> None:
         self._unsubscribe(self._run_subscriptions, (repository, run_id), queue)
+
+    def run_version(self, repository: str, run_id: str) -> int:
+        """Return the latest opaque revision for a run refresh channel."""
+        with self._lock:
+            return self._run_versions[(repository, run_id)]
 
     def subscribe_repository(self, repository: str) -> asyncio.Queue[WebUIEvent]:
         subscription = self._new_subscription()
@@ -64,6 +70,7 @@ class WebUIEventHub:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         with self._lock:
+            self._run_versions[(repository, run_id)] += 1
             subscriptions = []
             for subscription in self._run_subscriptions.get((repository, run_id), ()):
                 if subscription.active and not subscription.pending:

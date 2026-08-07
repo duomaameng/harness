@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 from typer.testing import CliRunner
 
 from harness.api import create_app
@@ -1457,6 +1459,92 @@ def test_webui_registers_run_and_workbench_websocket_routes(tmp_path):
 
     assert "/ui/ws/runs/{run_id}" in websocket_paths
     assert "/ui/ws/workbench" in websocket_paths
+
+
+def test_webui_run_websocket_sends_snapshot_and_redacted_updates(tmp_path):
+    repo = tmp_path / "websocket-delivery-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    task = service.create_task("Deliver refresh")
+    run = service.run_task(task.id, max_rounds=1)
+    api = create_app(service)
+
+    with TestClient(api) as client:
+        with client.websocket_connect(f"/ui/ws/runs/{run.id}") as websocket:
+            snapshot = websocket.receive_json()
+            service.webui_events.publish_run_update(str(repo.resolve()), run.id)
+            update = websocket.receive_json()
+
+    assert snapshot["type"] == "run_snapshot"
+    assert snapshot["run_id"] == run.id
+    assert isinstance(snapshot["version"], int)
+    assert update["type"] == "run_updated"
+    assert update["run_id"] == run.id
+    assert set(update) == {"type", "run_id", "timestamp"}
+    assert str(repo.resolve()) not in json_module.dumps(update)
+
+
+def test_webui_run_websocket_rejects_unknown_run_and_unsubscribes(tmp_path):
+    repo = tmp_path / "websocket-unknown-run-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    api = create_app(service)
+
+    with TestClient(api) as client:
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect("/ui/ws/runs/missing-run"):
+                pass
+
+    assert service.webui_events._run_subscriptions == {}
+
+
+def test_webui_run_websocket_unsubscribes_after_valid_connection_closes(tmp_path):
+    repo = tmp_path / "websocket-unsubscribe-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    task = service.create_task("Close subscription")
+    run = service.run_task(task.id, max_rounds=1)
+    api = create_app(service)
+
+    with TestClient(api) as client:
+        with client.websocket_connect(f"/ui/ws/runs/{run.id}") as websocket:
+            websocket.receive_json()
+
+    assert service.webui_events._run_subscriptions == {}
+
+
+def test_webui_run_websocket_rejects_run_outside_current_repository(tmp_path):
+    from harness.repository_registry import RepositoryRegistry
+
+    first_repo = tmp_path / "websocket-first-repo"
+    second_repo = tmp_path / "websocket-second-repo"
+    first_repo.mkdir()
+    second_repo.mkdir()
+    registry = RepositoryRegistry(tmp_path / "application-config")
+    registry.register(first_repo)
+    service = CoreService(first_repo, llm=MockLLM([]))
+    task = service.create_task("First repository run")
+    run = service.run_task(task.id, max_rounds=1)
+    registry.register(second_repo)
+    api = create_app(service, registry=registry)
+
+    with TestClient(api) as client:
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect(f"/ui/ws/runs/{run.id}"):
+                pass
+
+
+def test_webui_run_detail_snapshot_client_reconnects_without_reload_loop(tmp_path):
+    repo = tmp_path / "websocket-client-repo"
+    repo.mkdir()
+    service = CoreService(repo, llm=MockLLM([]))
+    task = service.create_task("Client safety")
+    run = service.run_task(task.id, max_rounds=1)
+    html = _endpoint(create_app(service), "/ui/runs/{run_id}", "GET")(run.id).body.decode()
+
+    assert 'event.type === "run_snapshot" && event.version !== renderedVersion' in html
+    assert 'snapshotChanged || event.type === "run_updated"' in html
+    assert "Math.min(reconnectDelay * 2, maxReconnectDelay)" in html
 
 
 def test_webui_run_detail_shows_human_readable_finish_result(tmp_path):

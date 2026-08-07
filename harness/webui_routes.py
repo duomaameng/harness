@@ -166,6 +166,13 @@ def include_webui(
         queue = active_core.webui_events.subscribe_run(str(active_core.repo_path), run_id)
         try:
             await websocket.accept()
+            await websocket.send_json({
+                "type": "run_snapshot",
+                "run_id": run_id,
+                "version": active_core.webui_events.run_version(
+                    str(active_core.repo_path), run_id
+                ),
+            })
             await _send_subscription_events(websocket, queue)
         finally:
             active_core.webui_events.unsubscribe_run(str(active_core.repo_path), run_id, queue)
@@ -275,7 +282,12 @@ async def _send_subscription_events(websocket: WebSocket, queue: asyncio.Queue) 
                 return
         if event_task in done:
             try:
-                await websocket.send_json(event_task.result())
+                event = event_task.result()
+                await websocket.send_json({
+                    "type": event["type"],
+                    "run_id": event["run_id"],
+                    "timestamp": event["timestamp"],
+                })
             except WebSocketDisconnect:
                 return
 
