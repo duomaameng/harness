@@ -27,16 +27,16 @@ def test_mockllm_demo_context_guardrail_feedback_repair_and_memory(tmp_path: Pat
         result.storage.get_context_item(item_id)
         for item_id in result.storage.get_package_items(packages[0]["id"])
     ]
-    assert any(
-        item is not None and item["kind"] == ContextItemKind.DECISION_MEMORY.value
-        for item in first_package_items
+    selected_memory = next(
+        item for item in first_package_items
+        if item is not None and item["kind"] == ContextItemKind.DECISION_MEMORY.value
     )
     first_model_context = json.loads(result.llm.requests[0][1]["content"])["context"]
-    assert any(
-        item["kind"] == ContextItemKind.DECISION_MEMORY.value
-        and "calculator module" in item["summary"].lower()
-        for item in first_model_context
+    prompted_memory = next(
+        item for item in first_model_context
+        if item["kind"] == ContextItemKind.DECISION_MEMORY.value
     )
+    assert prompted_memory["summary"] == selected_memory["summary"]
     assert any(
         action["guardrail_status"] == GuardrailDecision.DENY.value
         for action in result.storage.list_actions_for_run(result.run.id)
@@ -52,14 +52,18 @@ def test_mockllm_demo_context_guardrail_feedback_repair_and_memory(tmp_path: Pat
         item for item in actions
         if item["action_type"] == "write_file" and item["round_index"] == 2
     )
-    assert any(
-        not item["passed"] and item["round_index"] == failed_write["round_index"]
-        for item in feedback
+    failed_validation = next(
+        item for item in feedback
+        if item["round_index"] == failed_write["round_index"]
     )
-    assert any(
-        item["passed"] and item["round_index"] == repair_write["round_index"]
-        for item in feedback
+    repaired_validation = next(
+        item for item in feedback
+        if item["round_index"] == repair_write["round_index"]
     )
+    assert failed_validation["source"] == "test"
+    assert not failed_validation["passed"]
+    assert repaired_validation["source"] == "test"
+    assert repaired_validation["passed"]
     repair_content = json.loads(repair_write["args_json"])["content"]
     assert (demo_repo / "src" / "calculator.py").read_text(encoding="utf-8") == repair_content
 

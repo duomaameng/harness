@@ -64,3 +64,17 @@ python -m pytest tests/test_e2e_demo.py::test_mockllm_demo_context_guardrail_fee
 
 - `PLAN.md` now truthfully records Task 13 as delivered with full pytest and
   Docker-build verification pending.
+
+## Review fix round 2
+
+- The E2E proof now selects the concrete decision-memory context item from the
+  run's first persisted ContextPackage and compares its exact summary content
+  with the concrete decision-memory entry in the first `MockLLM` prompt.
+- It now selects validation feedback for the failed and repaired write rounds,
+  asserting both items have `source == "test"` before asserting their failed
+  and passing outcomes and final repaired calculator content.
+
+```text
+python -m pytest tests/test_e2e_demo.py::test_mockllm_demo_context_guardrail_feedback_repair_and_memory -q
+1 passed in 5.20s
+```
