@@ -47,7 +47,7 @@ _ALLOWED_VALIDATION_COMMANDS = (
 )
 
 _SHELL_CONTROL_PATTERN = re.compile(r"(\&\&|\|\||[;|<>])")
-_SHELL_EXPANSION_PATTERN = re.compile(r"%[^%]+%|\$\(|`")
+_SHELL_EXPANSION_PATTERN = re.compile(r"%[^%]+%|\$|`|(?:^|[\s\"'])~")
 _OUTSIDE_COMMAND_PATH_PATTERN = re.compile(r"(?:^|\s)\.\.(?:[/\\]|\s|$)")
 _COMMAND_TOKEN_PATTERN = re.compile(r'''(?:[^\s"']+|"[^"]*"|'[^']*')+''')
 _DANGEROUS_COMMAND_PATTERNS = (
