@@ -1,0 +1,15 @@
+{
+  "repositories": [
+    {
+      "id": "ffabf665-1b60-4ab1-9b11-25df96b35afb",
+      "path": "C:\\Users\\duoma\\java\\harness\\.worktrees\\codex-task-management\\.pytest-task-management\\test_webui_repository_switches0\\second-repository",
+      "name": "second-repository"
+    },
+    {
+      "id": "1335f9e6-51e9-4e5d-bbc3-5095f13b7f64",
+      "path": "C:\\Users\\duoma\\java\\harness\\.worktrees\\codex-task-management\\.pytest-task-management\\test_webui_repository_switches0\\first-repository",
+      "name": "first-repository"
+    }
+  ],
+  "current_repository_id": "ffabf665-1b60-4ab1-9b11-25df96b35afb"
+}
