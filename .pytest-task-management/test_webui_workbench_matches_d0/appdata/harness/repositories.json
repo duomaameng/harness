@@ -1,0 +1,10 @@
+{
+  "repositories": [
+    {
+      "id": "5a1b7d1d-4139-4a4f-901a-0a791f21bedd",
+      "path": "C:\\Users\\duoma\\java\\harness\\.worktrees\\codex-task-management\\.pytest-task-management\\test_webui_workbench_matches_d0\\prototype-workbench-repo",
+      "name": "prototype-workbench-repo"
+    }
+  ],
+  "current_repository_id": "5a1b7d1d-4139-4a4f-901a-0a791f21bedd"
+}

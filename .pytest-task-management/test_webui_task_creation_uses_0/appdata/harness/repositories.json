@@ -1,0 +1,10 @@
+{
+  "repositories": [
+    {
+      "id": "4bf05413-387b-4719-ba6a-d0c42f70f6b8",
+      "path": "C:\\Users\\duoma\\java\\harness\\.worktrees\\codex-task-management\\.pytest-task-management\\test_webui_task_creation_uses_0\\webui-blank-description-repo",
+      "name": "webui-blank-description-repo"
+    }
+  ],
+  "current_repository_id": "4bf05413-387b-4719-ba6a-d0c42f70f6b8"
+}

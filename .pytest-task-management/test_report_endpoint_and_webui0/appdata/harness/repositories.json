@@ -1,0 +1,10 @@
+{
+  "repositories": [
+    {
+      "id": "13ae9cd9-0f02-414c-b249-b8c228c6ef65",
+      "path": "C:\\Users\\duoma\\java\\harness\\.worktrees\\codex-task-management\\.pytest-task-management\\test_report_endpoint_and_webui0\\webui-readable-report-repo",
+      "name": "webui-readable-report-repo"
+    }
+  ],
+  "current_repository_id": "13ae9cd9-0f02-414c-b249-b8c228c6ef65"
+}

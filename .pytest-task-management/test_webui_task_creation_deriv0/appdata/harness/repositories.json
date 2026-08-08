@@ -1,0 +1,10 @@
+{
+  "repositories": [
+    {
+      "id": "ea080194-7f5f-498f-881f-8aee753c16fa",
+      "path": "C:\\Users\\duoma\\java\\harness\\.worktrees\\codex-task-management\\.pytest-task-management\\test_webui_task_creation_deriv0\\webui-derived-title-repo",
+      "name": "webui-derived-title-repo"
+    }
+  ],
+  "current_repository_id": "ea080194-7f5f-498f-881f-8aee753c16fa"
+}

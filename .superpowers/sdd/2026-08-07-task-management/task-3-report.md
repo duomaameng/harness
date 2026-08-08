@@ -10,7 +10,8 @@
 ## Tests
 
 - Added `test_webui_task_management_controls_only_render_for_inactive_tasks`.
-- Test execution was blocked: neither `python`, `py`, nor `python3` is available in the worktree. No Python installation was attempted.
+- Verified with `C:\Users\duoma\java\harness\.venv\Scripts\python.exe -m pytest --basetemp .pytest-task-management tests/test_service_cli_api.py -q`: `64 passed in 22.29s`.
+- The command required sandbox-external execution because the default Windows Temp path is denied by the sandbox.
 
 ## Commit
 

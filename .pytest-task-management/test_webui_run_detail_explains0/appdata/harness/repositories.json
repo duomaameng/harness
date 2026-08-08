@@ -1,0 +1,10 @@
+{
+  "repositories": [
+    {
+      "id": "5f88d3a3-ba2d-446b-ba96-c2ec3023be99",
+      "path": "C:\\Users\\duoma\\java\\harness\\.worktrees\\codex-task-management\\.pytest-task-management\\test_webui_run_detail_explains0\\webui-invalid-result-repo",
+      "name": "webui-invalid-result-repo"
+    }
+  ],
+  "current_repository_id": "5f88d3a3-ba2d-446b-ba96-c2ec3023be99"
+}
