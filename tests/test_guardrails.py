@@ -1,3 +1,5 @@
+import json
+
 from harness.domain import Action, ActionType, GuardrailDecision
 from harness.guardrails import Guardrail
 
@@ -136,6 +138,27 @@ def test_pytest_validation_command_cannot_expand_windows_environment_path(tmp_pa
 
     assert result.status == GuardrailDecision.DENY.value
     assert "shell expansion" in result.reason.lower()
+
+
+def test_shell_command_cannot_expand_environment_or_home_paths(tmp_path):
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    for command in (
+        "echo $OPENAI_API_KEY",
+        "echo ${OPENAI_API_KEY}",
+        "echo $env:OPENAI_API_KEY",
+        "python -m pytest ~/outside -q",
+    ):
+        action = Action(
+            action_type=ActionType.RUN_COMMAND.value,
+            args_json=json.dumps({"command": command}),
+        )
+
+        result = Guardrail(repo_root).evaluate(action)
+
+        assert result.status == GuardrailDecision.DENY.value, command
+        assert "shell expansion" in result.reason.lower()
 
 
 def test_multiline_approval_command_is_denied_before_approval(tmp_path):

@@ -445,6 +445,8 @@
 
 ### Task 13: Docker, CI, README, And End-To-End Mechanism Demo
 
+**Status:** Delivered; full pytest and Docker build verification pending local runtime availability.
+
 **Parallel:** No.
 
 **Depends On:** All prior tasks.
