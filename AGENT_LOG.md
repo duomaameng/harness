@@ -228,3 +228,11 @@
 - TDD RED: temporarily removed the test fixture while retaining `test_default_app_uses_temporary_appdata`; elevated local pytest failed as expected because the default registry used `C:/Users/duoma/AppData/Roaming/harness` instead of `tmp_path/appdata/harness`.
 - TDD GREEN: restored the minimal autouse fixture setting `APPDATA` to `tmp_path / "appdata"`; the focused test passed.
 - Validation: elevated local `python -m pytest tests/test_service_cli_api.py -q --basetemp .pytest-tmp/appdata-isolation-module` passed with 42 tests.
+
+## Task 13: Docker, CI, README, And End-To-End Mechanism Demo
+
+- Worktree: `C:\Users\duoma\java\harness\.worktrees\task-13-delivery`
+- TDD RED: added the deterministic MockLLM demo test before its importable workflow existed; the first local invocation was blocked because pytest was absent from the bundled runtime. After dependencies were installed, a test-only audit-field mismatch (`event_type` versus the actual `type`) failed before the assertion was corrected.
+- TDD GREEN: added `harness.demo.run_mockllm_demo`, which records matched calculator memory, blocks a dangerous command, captures failed validation from an incorrect edit, repairs it, and finishes only after validation passes.
+- Delivery: added a secret-free Python 3.12 Docker image that defaults to the FastAPI/WebUI server on port 8000, plus documented CLI command override and inspection at `http://localhost:8000`; added the `unit-test` GitHub Actions job, which clears real API-key variables, runs the offline suite, and builds the image.
+- Validation: focused E2E test passed (`1 passed in 4.92s`). Full pytest was attempted twice but did not finish within 120 seconds; Docker CLI is not installed on this worker, so the required local Docker build could not run.

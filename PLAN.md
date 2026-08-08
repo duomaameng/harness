@@ -445,6 +445,8 @@
 
 ### Task 13: Docker, CI, README, And End-To-End Mechanism Demo
 
+**Status:** Complete.
+
 **Parallel:** No.
 
 **Depends On:** All prior tasks.
