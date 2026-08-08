@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 import subprocess
 
+import harness.tools as tools_module
 from harness.domain import Action, Task, TaskRun
 from harness.storage import HarnessStorage
 from harness.tools import ToolDispatcher, ToolLimits
@@ -17,6 +18,36 @@ def _storage_and_run(repo: Path):
     run = TaskRun(task_id=task.id)
     storage.create_task_run(run)
     return storage, run
+
+
+def test_approved_command_passes_complete_string_to_posix_shell(monkeypatch, tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    storage, run = _storage_and_run(repo)
+    action = Action(
+        task_run_id=run.id,
+        action_type="run_command",
+        guardrail_status="require_approval",
+        args_json=json.dumps({"command": "echo approved"}),
+    )
+    captured = []
+
+    def fake_run(args, **kwargs):
+        captured.append((args, kwargs["shell"]))
+        if args == "echo approved" or args == ["echo", "approved"]:
+            return subprocess.CompletedProcess(args, 0, "approved\n", "")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(tools_module.os, "name", "posix")
+    monkeypatch.setattr(tools_module.subprocess, "run", fake_run)
+
+    stdout, _, exit_code, _ = ToolDispatcher(storage)._run_command(
+        action, {"command": "echo approved"}, repo
+    )
+
+    assert ("echo approved", True) in captured
+    assert stdout == "approved\n"
+    assert exit_code == 0
 
 
 def test_run_command_result_redacts_secret_like_output():

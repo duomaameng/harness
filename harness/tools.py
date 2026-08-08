@@ -215,7 +215,7 @@ class ToolDispatcher:
         command = self._command_arg(args)
         before = self._changed_file_snapshot(repo)
         use_shell = action.guardrail_status == GuardrailDecision.REQUIRE_APPROVAL.value
-        command_args = command if os.name == "nt" else shlex.split(command)
+        command_args = command if use_shell or os.name == "nt" else shlex.split(command)
         try:
             completed = subprocess.run(
                 command_args,
