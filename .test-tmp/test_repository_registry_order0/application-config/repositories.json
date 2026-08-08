@@ -1,0 +1,15 @@
+{
+  "repositories": [
+    {
+      "id": "bfbc6119-2716-4927-bc47-11b2378619fc",
+      "path": "C:\\Users\\duoma\\java\\harness\\.test-tmp\\test_repository_registry_order0\\first-repository",
+      "name": "first-repository"
+    },
+    {
+      "id": "8334ba67-f2bb-47c5-bf8e-4b436af673f8",
+      "path": "C:\\Users\\duoma\\java\\harness\\.test-tmp\\test_repository_registry_order0\\second-repository",
+      "name": "second-repository"
+    }
+  ],
+  "current_repository_id": "bfbc6119-2716-4927-bc47-11b2378619fc"
+}

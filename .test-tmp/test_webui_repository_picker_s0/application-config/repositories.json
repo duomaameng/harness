@@ -1,0 +1,15 @@
+{
+  "repositories": [
+    {
+      "id": "75210de7-c584-408f-9801-2aa10a88ff94",
+      "path": "C:\\Users\\duoma\\java\\harness\\.test-tmp\\test_webui_repository_picker_s0\\current-repository",
+      "name": "current-repository"
+    },
+    {
+      "id": "71d43b08-6e82-4305-9f11-e5b095c83443",
+      "path": "C:\\Users\\duoma\\java\\harness\\.test-tmp\\test_webui_repository_picker_s0\\selected-repository",
+      "name": "selected-repository"
+    }
+  ],
+  "current_repository_id": "71d43b08-6e82-4305-9f11-e5b095c83443"
+}

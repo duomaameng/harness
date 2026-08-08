@@ -1,0 +1,10 @@
+{
+  "repositories": [
+    {
+      "id": "3721ec21-1079-42ee-98e2-17ba3b8a834f",
+      "path": "C:\\Users\\duoma\\java\\harness\\.test-tmp\\test_default_api_run_rejects_w0\\api-real-llm-repo",
+      "name": "api-real-llm-repo"
+    }
+  ],
+  "current_repository_id": "3721ec21-1079-42ee-98e2-17ba3b8a834f"
+}

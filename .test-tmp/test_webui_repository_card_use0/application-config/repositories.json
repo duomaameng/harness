@@ -1,0 +1,15 @@
+{
+  "repositories": [
+    {
+      "id": "39a9906d-e76b-4a44-9b2d-06677fc4b1c5",
+      "path": "C:\\Users\\duoma\\java\\harness\\.test-tmp\\test_webui_repository_card_use0\\second-repository",
+      "name": "second-repository"
+    },
+    {
+      "id": "58118bda-7673-49b0-9517-3cd98cdcebe8",
+      "path": "C:\\Users\\duoma\\java\\harness\\.test-tmp\\test_webui_repository_card_use0\\first-repository",
+      "name": "first-repository"
+    }
+  ],
+  "current_repository_id": "39a9906d-e76b-4a44-9b2d-06677fc4b1c5"
+}
