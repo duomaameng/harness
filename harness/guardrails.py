@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from harness.domain import Action, ActionType, GuardrailDecision, GuardrailResult, GuardrailRisk
 
@@ -47,6 +47,9 @@ _ALLOWED_VALIDATION_COMMANDS = (
 )
 
 _SHELL_CONTROL_PATTERN = re.compile(r"(\&\&|\|\||[;|<>])")
+_SHELL_EXPANSION_PATTERN = re.compile(r"%[^%]+%|\$\(|`")
+_OUTSIDE_COMMAND_PATH_PATTERN = re.compile(r"(?:^|\s)\.\.(?:[/\\]|\s|$)")
+_COMMAND_TOKEN_PATTERN = re.compile(r'''(?:[^\s"']+|"[^"]*"|'[^']*')+''')
 _DANGEROUS_COMMAND_PATTERNS = (
     re.compile(r"^rm(?:\s|$)"),
     re.compile(r"^del(?:\s|$)"),
@@ -178,11 +181,31 @@ class Guardrail:
     def _is_sensitive_path(self, raw_path: str) -> bool:
         parts = {part.lower() for part in Path(raw_path).parts}
         name = Path(raw_path).name.lower()
-        if parts & _SENSITIVE_PATH_PARTS:
+        if parts & _SENSITIVE_PATH_PARTS or name == ".env" or name.startswith(".env."):
             return True
         return any(marker in name for marker in ("secret", "credential", "token", "key"))
 
+    def _command_references_outside_repository(self, command: str) -> bool:
+        for token in _COMMAND_TOKEN_PATTERN.findall(command):
+            candidate_text = token.strip("\"'")
+            if "=" in candidate_text and candidate_text.startswith("-"):
+                candidate_text = candidate_text.split("=", 1)[1]
+            if not candidate_text or candidate_text.startswith("-"):
+                continue
+            if PureWindowsPath(candidate_text).is_absolute() or PurePosixPath(candidate_text).is_absolute():
+                return True
+            candidate = (self.repo_root / candidate_text).resolve()
+            if candidate != self.repo_root and self.repo_root not in candidate.parents:
+                return True
+        return False
+
     def _evaluate_command(self, command: str) -> GuardrailResult:
+        if "\r" in command or "\n" in command:
+            return GuardrailResult(
+                status=GuardrailDecision.DENY.value,
+                risk_level=GuardrailRisk.HIGH.value,
+                reason="Multiline shell commands are denied.",
+            )
         normalized = " ".join(command.strip().split())
         if not normalized:
             return GuardrailResult(
@@ -197,6 +220,27 @@ class Guardrail:
                 status=GuardrailDecision.DENY.value,
                 risk_level=GuardrailRisk.HIGH.value,
                 reason="Shell command chaining or redirection is denied.",
+            )
+
+        if _SHELL_EXPANSION_PATTERN.search(normalized):
+            return GuardrailResult(
+                status=GuardrailDecision.DENY.value,
+                risk_level=GuardrailRisk.HIGH.value,
+                reason="Shell expansion syntax is denied.",
+            )
+
+        if _OUTSIDE_COMMAND_PATH_PATTERN.search(normalized):
+            return GuardrailResult(
+                status=GuardrailDecision.DENY.value,
+                risk_level=GuardrailRisk.HIGH.value,
+                reason="Command path is outside the repository root.",
+            )
+
+        if self._command_references_outside_repository(normalized):
+            return GuardrailResult(
+                status=GuardrailDecision.DENY.value,
+                risk_level=GuardrailRisk.HIGH.value,
+                reason="Command path is outside the repository root.",
             )
 
         if any(pattern.search(lowered) for pattern in _DANGEROUS_COMMAND_PATTERNS):

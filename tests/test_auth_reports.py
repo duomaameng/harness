@@ -243,9 +243,10 @@ def test_report_export_preserves_run_sections():
     assert "# 运行报告" in markdown
     for section in (
         "运行概览", "最终结论", "已选上下文", "动作轨迹", "验证与反馈",
-        "审批记录", "变更文件", "审计原始数据",
+        "审批记录", "变更文件",
     ):
         assert f"## {section}" in markdown
+    assert "审计原始数据" not in markdown
 
 
 def test_report_export_reads_service_payload_field_names():
@@ -329,14 +330,11 @@ def test_report_export_renders_readable_run_sections():
     assert "## 动作轨迹" in markdown
     assert "读取文件: " in markdown
     assert "pyproject.toml" in markdown
-    assert "## 审计原始数据" in markdown
-    assert "```json" not in markdown.split("## 审计原始数据", 1)[0]
-    context_section = markdown.split("## 审计原始数据", 1)[0]
-    assert "C:/workspace/project/private.py" not in context_section
-    assert "C:/workspace/project/scalar-private.py" not in context_section
+    assert "审计原始数据" not in markdown
+    assert "C:/workspace/project/private.py" not in markdown
+    assert "C:/workspace/project/scalar-private.py" not in markdown
     empty_context = ReportExporter({"selected_context": ["C:/workspace/project/only-private.py"]}).to_markdown()
-    empty_context_section = empty_context.split("## 审计原始数据", 1)[0]
-    assert "| - | - | - | - |" in empty_context_section
+    assert "| - | - | - | - |" in empty_context
     assert "- state: verified; reason: The output is easy to scan.; result: passed" in markdown
     assert "- status: approved; reason: Ready; result: published" in markdown
     assert json.loads(ReportExporter(report).to_json()) == report

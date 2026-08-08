@@ -177,6 +177,28 @@ def test_runner_stops_and_records_a_model_timeout(tmp_path):
     assert stored_run["finished_at"] is not None
 
 
+def test_runner_stops_out_of_scope_task_before_creating_actions(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    storage = HarnessStorage(repo)
+    storage.init()
+    task = storage.create_task(Task(
+        title="Deploy changes across repositories",
+        description="Update the payments repository and deploy it with the storefront repository to production.",
+        repo_path=str(repo),
+    ))
+
+    run = AgentRunner(
+        storage=storage,
+        llm=MockLLM(['{"thought_summary":"continue","action":"finish","args":{"summary":"done"}}']),
+        repo_root=repo,
+    ).run(task.id)
+
+    assert run.status == TaskStatus.STOPPED.value
+    assert run.stop_reason == "out_of_scope: cross-repository work; external deployment"
+    assert storage.list_actions_for_run(run.id) == []
+
+
 def test_runner_runs_validation_after_tool_execution_and_records_feedback(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()

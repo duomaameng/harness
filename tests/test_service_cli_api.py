@@ -1141,22 +1141,26 @@ def test_rejected_approval_creates_guardrail_feedback(tmp_path):
         repo,
         llm=MockLLM([
             '{"thought_summary":"needs approval","action":"run_command",'
-            '"args":{"command":"npm install left-pad"}}'
+            '"args":{"command":"npm install left-pad"}}',
+            '{"thought_summary":"use an alternative","action":"finish",'
+            '"args":{"summary":"dependency installation was declined"}}',
         ]),
     )
     app = create_app(service)
     task_id = _endpoint(app, "/tasks", "POST")({"title": "Install dependency"})["id"]
-    run_id = _endpoint(app, "/tasks/{task_id}/runs", "POST")(task_id, {"max_rounds": 1})["id"]
+    run_id = _endpoint(app, "/tasks/{task_id}/runs", "POST")(task_id, {"max_rounds": 2})["id"]
     approval_id = _endpoint(app, "/runs/{run_id}/approvals", "GET")(run_id)[0]["id"]
 
     _endpoint(app, "/approvals/{approval_id}/reject", "POST")(
         approval_id, {"decided_by": "tester"}
     )
     feedback = _endpoint(app, "/runs/{run_id}/feedback", "GET")(run_id)
+    run = _endpoint(app, "/runs/{run_id}", "GET")(run_id)["run"]
 
     assert feedback
     assert feedback[0]["source"] == "guardrail"
     assert "rejected" in feedback[0]["summary"].lower()
+    assert run["status"] == "succeeded"
 
 
 def test_approval_can_only_be_decided_once(tmp_path):
@@ -1884,8 +1888,8 @@ def test_webui_run_detail_renders_report_markdown_as_semantic_html(tmp_path):
     assert "<ul><li>" in html
     assert "&lt;img src=x onerror=1&gt;" in html
     assert "<img src=x onerror=1>" not in html
-    assert "<details>" in html
-    assert "<summary>" in html
+    assert "审计原始数据" not in html
+    assert "<summary>" not in html
     assert "<pre># 运行报告" not in html
 
 

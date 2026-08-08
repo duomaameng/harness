@@ -37,7 +37,6 @@ class ReportExporter:
         self._render_feedback(lines, redacted)
         self._render_approvals(lines, redacted)
         self._render_changed_files(lines, redacted)
-        lines.extend(("## \u5ba1\u8ba1\u539f\u59cb\u6570\u636e", "", "<details>", "<summary>\u5ba1\u8ba1\u539f\u59cb\u6570\u636e</summary>", "", "```json", json.dumps(redacted, ensure_ascii=False, indent=2), "```", "", "</details>", ""))
         return "\n".join(lines).rstrip() + "\n"
 
     export_markdown = to_markdown

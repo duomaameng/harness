@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shlex
 import subprocess
 import time
 from dataclasses import dataclass
@@ -210,16 +212,17 @@ class ToolDispatcher:
     def _run_command(
         self, action: Action, args: dict[str, object], repo: Path
     ) -> tuple[str, str | None, int | None, list[str] | None]:
-        del action
         command = self._command_arg(args)
         before = self._changed_file_snapshot(repo)
+        use_shell = action.guardrail_status == GuardrailDecision.REQUIRE_APPROVAL.value
+        command_args = command if os.name == "nt" else shlex.split(command)
         try:
             completed = subprocess.run(
-                command,
+                command_args,
                 cwd=repo,
                 text=True,
                 capture_output=True,
-                shell=True,
+                shell=use_shell,
                 timeout=self.limits.command_timeout_seconds,
                 check=False,
             )

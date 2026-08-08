@@ -143,6 +143,41 @@ class AgentRunner:
             changed_files=changed_files,
         )
 
+    def resume_rejected_action(self, approval_id: str) -> TaskRun:
+        approval = self.storage.get_approval_request(approval_id)
+        if approval is None or approval["status"] != ApprovalStatus.REJECTED.value:
+            raise ValueError(f"Approval is not rejected: {approval_id}")
+        stored_run = self.storage.get_task_run(approval["task_run_id"])
+        if stored_run is None or stored_run["status"] != TaskStatus.WAITING_APPROVAL.value:
+            raise ValueError("Approval does not belong to a waiting task run")
+        task = self.storage.get_task(stored_run["task_id"])
+        action_data = self.storage.get_action(approval["action_id"])
+        if task is None or action_data is None:
+            raise ValueError("Approval is missing its task or action")
+
+        run = TaskRun(**stored_run)
+        action = Action(**action_data)
+        self.storage.update_task_run(run.id, status=TaskStatus.RUNNING.value, stop_reason=None)
+        run.status = TaskStatus.RUNNING.value
+        run.stop_reason = None
+        self._publish_run_update(run.id)
+        prior_actions = [
+            self._action_trace(Action(**item))
+            for item in self.storage.list_actions_for_run(run.id)
+        ]
+        prior_feedback = [
+            self._feedback_from_row(item)
+            for item in self.storage.list_feedback_for_run(run.id)
+        ]
+        return self._continue(
+            task=task,
+            run=run,
+            start_round=action.round_index + 1,
+            prior_actions=prior_actions,
+            prior_feedback=prior_feedback,
+            changed_files=self._changed_files_for_run(run.id),
+        )
+
     def _continue(
         self,
         *,
@@ -157,6 +192,12 @@ class AgentRunner:
         prior_feedback = prior_feedback or []
         changed_files = changed_files or set()
         profile = TaskProfiler().profile(task["description"] or task["title"])
+        if profile.out_of_scope:
+            return self._finish(
+                run,
+                TaskStatus.STOPPED.value,
+                f"out_of_scope: {profile.decomposition_reason}",
+            )
 
         for round_index in range(start_round, run.max_repair_rounds):
             self.storage.update_task_run(run.id, current_round=round_index)

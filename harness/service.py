@@ -154,12 +154,19 @@ class CoreService:
             action = self.storage.get_action(approval["action_id"]) or {}
             self.storage.create_feedback(Feedback(
                 task_run_id=approval["task_run_id"],
+                round_index=int(action.get("round_index") or 0),
                 source="guardrail",
                 category="unsafe_action",
                 summary=f"Approval rejected: {approval.get('reason') or 'human rejected action'}",
                 locations=[action.get("action_type") or "approval"],
             ))
-            self._publish_run_update(approval["task_run_id"])
+            AgentRunner(
+                storage=self.storage,
+                llm=self.llm,
+                repo_root=self.repo_path,
+                validation_commands=self.validation_commands,
+                event_publisher=self._publish_run_update,
+            ).resume_rejected_action(approval_id)
         return self.storage.get_approval_request(approval_id) or {}
 
     def _publish_run_update(self, run_id: str) -> None:
@@ -212,7 +219,7 @@ class CoreService:
             "action_trace": self.list_actions(run_id),
             "tool_results": self.storage.list_tool_results_for_run(run_id),
             "changed_files": self._changed_files(run_id),
-            "validation": self.list_feedback(run_id),
+            "feedback": self.list_feedback(run_id),
             "repair_rounds": run.get("current_round"),
             "approval_decisions": self.list_approvals(run_id),
             "final_status": run.get("status"),
