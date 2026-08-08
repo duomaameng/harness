@@ -88,3 +88,4 @@ htmlcov/
 .hypothesis/
 .pytest-phase2-final-review
 .pytest-phase2-final-review-clean
+.pytest-task-management
