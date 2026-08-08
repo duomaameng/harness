@@ -16,7 +16,35 @@ def test_mockllm_demo_context_guardrail_feedback_repair_and_memory(tmp_path: Pat
 
     result = run_mockllm_demo(demo_repo)
 
-    assert result.run.status == TaskStatus.SUCCEEDED.value
+    actions = result.storage.list_actions_for_run(result.run.id)
+    feedback = result.storage.list_feedback_for_run(result.run.id)
+    diagnostics = {
+        "stop_reason": result.run.stop_reason,
+        "actions": [
+            {
+                "round_index": action["round_index"],
+                "action_type": action["action_type"],
+                "guardrail_status": action["guardrail_status"],
+            }
+            for action in actions
+        ],
+        "feedback": [
+            {
+                "round_index": item["round_index"],
+                "source": item["source"],
+                "category": item["category"],
+                "summary": item["summary"],
+                "locations": item["locations"],
+            }
+            for item in feedback
+        ],
+    }
+    assert result.run.status == TaskStatus.SUCCEEDED.value, json.dumps(
+        diagnostics,
+        ensure_ascii=False,
+        indent=2,
+        default=str,
+    )
     assert len(result.llm.requests) == 4
     packages = result.storage._fetchall(
         "SELECT * FROM context_package WHERE task_run_id=? ORDER BY round_index",
