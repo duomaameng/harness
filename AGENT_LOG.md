@@ -236,3 +236,10 @@
 - TDD GREEN: added `harness.demo.run_mockllm_demo`, which records matched calculator memory, blocks a dangerous command, captures failed validation from an incorrect edit, repairs it, and finishes only after validation passes.
 - Delivery: added a secret-free Python 3.12 Docker image that defaults to the FastAPI/WebUI server on port 8000, plus documented CLI command override and inspection at `http://localhost:8000`; added the `unit-test` GitHub Actions job, which clears real API-key variables, runs the offline suite, and builds the image.
 - Validation: focused E2E test passed (`1 passed in 4.92s`). Full pytest was attempted twice but did not finish within 120 seconds; Docker CLI is not installed on this worker, so the required local Docker build could not run.
+
+### Task 13 review fix round 1
+
+- Docker now switches to `/workspace` after installation so its default WebUI/API process uses the documented bind-mounted repository; `.harness/` persists through that mount.
+- The E2E test now proves a persisted run ContextPackage contains decision memory, the first MockLLM prompt receives it, validation failure/pass feedback correspond to the failing and repaired writes, and the repaired calculator file is the final content.
+- Task 13 is marked delivered with full-suite and Docker verification pending, rather than simply complete.
+- Focused E2E validation passed: `1 passed in 5.13s`.

@@ -73,8 +73,7 @@ The image contains no keys or other credentials. Build it with:
 docker build -t context-aware-harness:test .
 ```
 
-Run the API and WebUI, mounting the repository whose local harness state should
-be retained:
+Run the API and WebUI against the repository mounted at `/workspace`:
 
 ```bash
 docker run --rm -p 8000:8000 -v "${PWD}:/workspace" context-aware-harness:test
@@ -82,6 +81,9 @@ docker run --rm -p 8000:8000 -v "${PWD}:/workspace" context-aware-harness:test
 
 The default command starts the API and WebUI. Inspect the workbench at
 [http://localhost:8000](http://localhost:8000) after the container starts.
+Because the server starts in `/workspace`, tasks, repository indexing, and
+`.harness/` state apply to the mounted repository. The bind mount preserves
+that state after the container exits; without it, state is ephemeral.
 
 Run the CLI by overriding that default command:
 

@@ -43,3 +43,24 @@ python -m pytest tests/test_e2e_demo.py::test_mockllm_demo_context_guardrail_fee
 
 These two environment/time limitations are the only outstanding verification
 concerns. CI executes both the full offline pytest suite and the Docker build.
+
+## Review fix round 1
+
+- Changed the Docker runtime working directory from `/app` to `/workspace`.
+  The default `harness.api:app` service now starts against the documented bind
+  mount, so WebUI/API tasks, indexing, and `.harness/` persistence target the
+  mounted repository. README documents the mount and the fact that state is
+  ephemeral without it; CLI remains available through Docker command override.
+- Strengthened the E2E test to assert a `ContextPackage` for the exact run,
+  verify its decision-memory item appears in the first `MockLLM` prompt, match
+  failed and passing validation feedback to the bad and repaired write rounds,
+  and verify the final calculator source equals the repair action content.
+- Focused verification after the review changes passed:
+
+```text
+python -m pytest tests/test_e2e_demo.py::test_mockllm_demo_context_guardrail_feedback_repair_and_memory -q
+1 passed in 5.13s
+```
+
+- `PLAN.md` now truthfully records Task 13 as delivered with full pytest and
+  Docker-build verification pending.
